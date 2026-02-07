@@ -9,7 +9,13 @@
     "build": "node -e \"console.log('build @logbook/sdk (stub)')\"",
     "dev": "node -e \"console.log('dev @logbook/sdk (stub)')\"",
     "typecheck": "node -e \"console.log('typecheck @logbook/sdk (stub)')\"",
-    "test": "node -e \"console.log('test @logbook/sdk (stub)')\"",
+    "test": "tsx --test test/*.test.ts",
     "lint": "node -e \"console.log('lint @logbook/sdk (stub)')\""
+  },
+  "dependencies": {
+    "@logbook/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@logbook/collector": "workspace:*"
   }
 }

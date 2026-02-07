@@ -48,7 +48,15 @@ importers:
 
   packages/core: {}
 
-  packages/sdk: {}
+  packages/sdk:
+    dependencies:
+      '@logbook/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@logbook/collector':
+        specifier: workspace:*
+        version: link:../collector
 
 packages:
 
