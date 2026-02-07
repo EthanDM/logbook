@@ -15,17 +15,24 @@ logbook summary --since 5m
 
 ## Required Outcomes
 
-- [ ] Collector starts and accepts ingest.
-- [ ] Event appears in `tail`.
-- [ ] Summary includes that event in deterministic output.
-- [ ] Running this loop feels materially better than raw console logging.
+- [x] Collector starts and accepts ingest.
+- [x] Event appears in `tail`.
+- [x] Summary includes that event in deterministic output.
+- [x] Running this loop feels materially better than raw console logging.
 
 ## If Day 1 Passes
 
 - Proceed to Milestone 4 (SDK).
 
+## Validation Notes
+
+- Smoke-tested with temporary DB and local collector:
+- `dev` start
+- `POST /ingest`
+- `tail`
+- `summary --since 5m`
+
 ## If Day 1 Fails
 
 - Improve collector and CLI ergonomics first.
 - Do not start SDK or sink integrations yet.
-

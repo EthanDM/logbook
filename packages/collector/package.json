@@ -9,7 +9,15 @@
     "build": "node -e \"console.log('build @logbook/collector (stub)')\"",
     "dev": "node -e \"console.log('dev @logbook/collector (stub)')\"",
     "typecheck": "node -e \"console.log('typecheck @logbook/collector (stub)')\"",
-    "test": "node -e \"console.log('test @logbook/collector (stub)')\"",
+    "test": "tsx --test test/*.test.ts",
     "lint": "node -e \"console.log('lint @logbook/collector (stub)')\""
+  },
+  "dependencies": {
+    "@logbook/core": "workspace:*",
+    "better-sqlite3": "^12.6.2",
+    "fastify": "^5.7.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
   }
 }

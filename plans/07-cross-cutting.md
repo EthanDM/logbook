@@ -2,9 +2,9 @@
 
 ## Event Contract
 
-- [ ] Create `packages/core` for shared event types and validation schema.
-- [ ] Define allowed levels and canonical serialization rules.
-- [ ] Keep collector, CLI, and SDK imports pointed at core contract.
+- [x] Create `packages/core` for shared event types and validation schema.
+- [x] Define allowed levels and canonical serialization rules.
+- [x] Keep collector, CLI, and SDK imports pointed at core contract.
 
 ## Redaction
 
@@ -15,10 +15,10 @@
 
 ## Deterministic Output
 
-- [ ] Stable sort ordering for all grouped CLI output.
-- [ ] Fixed heading names and section order.
-- [ ] Stable timestamp formatting.
-- [ ] No random iteration order from objects/maps.
+- [x] Stable sort ordering for all grouped CLI output.
+- [x] Fixed heading names and section order.
+- [x] Stable timestamp formatting.
+- [x] No random iteration order from objects/maps.
 
 ## Reliability and Ops
 
