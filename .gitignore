@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime/local data
+*.db
+*.db-wal
+*.db-shm
+.logbook/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
