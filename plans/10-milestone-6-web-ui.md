@@ -133,6 +133,17 @@ Acceptance:
 - [x] `pnpm -r test` passes.
 - [x] README updated with Web UI usage.
 
+## Definition of Done
+
+- [x] Collector read APIs power the web dashboard (`/events`, `/events/:id/around`, `/flows/:flowId`, `/summary`).
+- [x] Web package compiles and typechecks in workspace.
+- [x] Web unit tests run in CI/local (`pnpm -C packages/web test`).
+- [x] One-command local path exists via `logbook web`.
+- [ ] Manual local smoke run completed on host machine:
+  - [ ] `logbook web` starts collector and UI
+  - [ ] filters + pagination work in browser
+  - [ ] detail/around and flow pages load expected data
+
 ## Stop Condition
 
 Stop expanding UI once this loop works reliably:

@@ -35,3 +35,10 @@ LOGBOOK_WEB_API_TARGET=http://127.0.0.1:8787 pnpm -C packages/web dev
 - `/` events table with filters, health panel, and summary snapshot
 - `/event/:eventId` around-event context view
 - `/flow/:flowId` ordered flow timeline
+
+## Verify
+
+```sh
+pnpm -C packages/web test
+pnpm -C packages/web build
+```
