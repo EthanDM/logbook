@@ -78,8 +78,12 @@ export function attachReactNativeFlushAdapter(
 
   return {
     detach(): void {
-      changeSubscription?.remove?.();
-      memorySubscription?.remove?.();
+      if (changeSubscription && typeof changeSubscription.remove === "function") {
+        changeSubscription.remove();
+      }
+      if (memorySubscription && typeof memorySubscription.remove === "function") {
+        memorySubscription.remove();
+      }
     },
   };
 }

@@ -3,13 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "node -e \"console.log('build @logbook/core (stub)')\"",
-    "dev": "node -e \"console.log('dev @logbook/core (stub)')\"",
-    "typecheck": "node -e \"console.log('typecheck @logbook/core (stub)')\"",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"console.log('test @logbook/core (stub)')\"",
-    "lint": "node -e \"console.log('lint @logbook/core (stub)')\""
+    "lint": "tsc -p tsconfig.json --noEmit"
   }
 }

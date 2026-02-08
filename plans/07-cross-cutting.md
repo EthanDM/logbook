@@ -8,10 +8,10 @@
 
 ## Redaction
 
-- [ ] Add collector-side redaction hook for payload keys.
-- [ ] Set default redact keys to `email`, `token`, `authorization`, `password`.
-- [ ] Configurable via `LOGBOOK_REDACT_KEYS`.
-- [ ] Add tests to prevent accidental plain-text secrets in stored payload.
+- [x] Add collector-side redaction hook for payload keys.
+- [x] Set default redact keys to `email`, `token`, `authorization`, `password`.
+- [x] Configurable via `LOGBOOK_REDACT_KEYS`.
+- [x] Add tests to prevent accidental plain-text secrets in stored payload.
 
 ## Deterministic Output
 
@@ -22,6 +22,6 @@
 
 ## Reliability and Ops
 
-- [ ] Graceful shutdown flush behavior documented and tested.
-- [ ] Health endpoint reports queue and dropped events.
-- [ ] Basic perf sanity test and startup smoke test.
+- [x] Graceful shutdown flush behavior documented and tested.
+- [x] Health endpoint reports queue and dropped events.
+- [x] Basic perf sanity test and startup smoke test.

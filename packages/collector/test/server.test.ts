@@ -1,10 +1,16 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createCollectorServer } from "../src/server/collector-server.js";
+import { LogbookDatabase } from "../src/db/database.js";
+import {
+  createCollectorServer,
+  resolveCollectorConfig,
+  startCollector,
+} from "../src/server/collector-server.js";
 
 function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -12,6 +18,30 @@ function createTempDir(prefix: string): string {
 
 function cleanupDir(path: string): void {
   rmSync(path, { recursive: true, force: true });
+}
+
+async function reservePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Failed to resolve ephemeral port."));
+        return;
+      }
+
+      const { port } = address;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
 }
 
 test("GET /health returns collector status payload", async () => {
@@ -179,3 +209,196 @@ test("retention loop enforces max rows automatically", async () => {
   cleanupDir(root);
 });
 
+test("collector redacts default sensitive keys in payload before persistence", async () => {
+  const root = createTempDir("logbook-collector-redaction-default-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload: {
+      ts: Date.now(),
+      level: "info",
+      name: "demo.redaction.default",
+      payload: {
+        email: "dev@example.com",
+        token: "abcd",
+        nested: { authorization: "Bearer x", password: "secret", safe: "ok" },
+      },
+    },
+  });
+  assert.equal(response.statusCode, 202);
+
+  await sleep(20);
+  await server.close();
+
+  const db = new LogbookDatabase({ dbPath });
+  const row = db.queryEvents({ name: "demo.redaction.default", limit: 1 })[0];
+  assert.ok(row);
+  assert.ok(row.payloadJson);
+
+  const payload = JSON.parse(row.payloadJson);
+  assert.equal(payload.email, "[REDACTED]");
+  assert.equal(payload.token, "[REDACTED]");
+  assert.equal(payload.nested.authorization, "[REDACTED]");
+  assert.equal(payload.nested.password, "[REDACTED]");
+  assert.equal(payload.nested.safe, "ok");
+
+  db.close();
+  cleanupDir(root);
+});
+
+test("collector supports custom redaction keys via LOGBOOK_REDACT_KEYS", async () => {
+  const config = resolveCollectorConfig(
+    {},
+    {
+      LOGBOOK_REDACT_KEYS: "apiKey,secret",
+    } as NodeJS.ProcessEnv,
+  );
+  assert.deepEqual(config.redactKeys, ["apikey", "secret"]);
+
+  const root = createTempDir("logbook-collector-redaction-custom-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+    redactKeys: ["apiKey", "secret"],
+  });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload: {
+      ts: Date.now(),
+      level: "info",
+      name: "demo.redaction.custom",
+      payload: {
+        apiKey: "live-key",
+        secret: "super-secret",
+        token: "leave-visible",
+      },
+    },
+  });
+  assert.equal(response.statusCode, 202);
+
+  await sleep(20);
+  await server.close();
+
+  const db = new LogbookDatabase({ dbPath });
+  const row = db.queryEvents({ name: "demo.redaction.custom", limit: 1 })[0];
+  assert.ok(row);
+  assert.ok(row.payloadJson);
+
+  const payload = JSON.parse(row.payloadJson);
+  assert.equal(payload.apiKey, "[REDACTED]");
+  assert.equal(payload.secret, "[REDACTED]");
+  assert.equal(payload.token, "leave-visible");
+
+  db.close();
+  cleanupDir(root);
+});
+
+test("server close flushes queued events before shutdown", async () => {
+  const root = createTempDir("logbook-collector-shutdown-flush-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 10_000,
+    flushQueueThreshold: 10_000,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload: {
+      ts: Date.now(),
+      level: "info",
+      name: "demo.shutdown.flush",
+    },
+  });
+  assert.equal(response.statusCode, 202);
+
+  await server.close();
+
+  const db = new LogbookDatabase({ dbPath });
+  const rows = db.queryEvents({ name: "demo.shutdown.flush", limit: 10 });
+  assert.equal(rows.length, 1);
+  db.close();
+
+  cleanupDir(root);
+});
+
+test("startCollector smoke test serves /health over HTTP", async () => {
+  const root = createTempDir("logbook-collector-smoke-http-");
+  const dbPath = join(root, "logs.db");
+  const port = await reservePort();
+  const server = await startCollector({
+    host: "127.0.0.1",
+    port,
+    dbPath,
+    retentionIntervalMs: 30_000,
+  });
+
+  const response = await fetch(`http://127.0.0.1:${port}/health`);
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { ok: boolean; dbPath: string };
+  assert.equal(body.ok, true);
+  assert.equal(body.dbPath, dbPath);
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("collector handles large ingest batches without flush failures", async () => {
+  const root = createTempDir("logbook-collector-perf-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushBatchSize: 500,
+    flushQueueThreshold: 500,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const now = Date.now();
+  const payload = Array.from({ length: 5_000 }, (_, index) => ({
+    ts: now + index,
+    level: "info" as const,
+    name: "demo.perf",
+  }));
+
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload,
+  });
+  assert.equal(response.statusCode, 202);
+
+  await sleep(150);
+  const health = await server.app.inject({
+    method: "GET",
+    url: "/health",
+  });
+  const healthBody = health.json() as {
+    stats: { flushFailures: number };
+    storage: { totalEvents: number };
+  };
+  assert.equal(healthBody.stats.flushFailures, 0);
+  assert.equal(healthBody.storage.totalEvents, 5_000);
+
+  await server.close();
+  cleanupDir(root);
+});

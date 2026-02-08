@@ -12,6 +12,8 @@ const DEFAULT_FLUSH_BATCH_SIZE = 200;
 const DEFAULT_FLUSH_QUEUE_THRESHOLD = 200;
 const DEFAULT_MAX_QUEUE_SIZE = 50_000;
 const DEFAULT_RETENTION_INTERVAL_MS = 60_000;
+const DEFAULT_REDACT_KEYS = ["email", "token", "authorization", "password"];
+const REDACTED_VALUE = "[REDACTED]";
 
 type DropPolicy = "drop_oldest";
 
@@ -27,6 +29,7 @@ export interface CollectorConfig {
   maxQueueSize: number;
   retentionIntervalMs: number;
   dropPolicy: DropPolicy;
+  redactKeys: string[];
 }
 
 export interface CollectorOptions {
@@ -40,6 +43,7 @@ export interface CollectorOptions {
   flushQueueThreshold?: number;
   maxQueueSize?: number;
   retentionIntervalMs?: number;
+  redactKeys?: string[];
 }
 
 export interface CollectorServer {
@@ -65,9 +69,12 @@ interface ParseError {
   error: string;
 }
 
+type ParsedEvent = { ok: true; event: LogEvent } | ParseError;
+
 class CollectorRuntime {
   private readonly db: LogbookDatabase;
   private readonly config: CollectorConfig;
+  private readonly redactKeySet: ReadonlySet<string>;
   private readonly queue: LogEvent[] = [];
   private readonly stats: QueueStats = {
     droppedEvents: 0,
@@ -84,6 +91,7 @@ class CollectorRuntime {
   constructor(db: LogbookDatabase, config: CollectorConfig) {
     this.db = db;
     this.config = config;
+    this.redactKeySet = new Set(config.redactKeys.map((key) => key.toLowerCase()));
   }
 
   start(): void {
@@ -99,7 +107,8 @@ class CollectorRuntime {
   }
 
   enqueue(events: LogEvent[]): { accepted: number; dropped: number } {
-    for (const event of events) {
+    for (const rawEvent of events) {
+      const event = redactEventPayload(rawEvent, this.redactKeySet);
       if (this.queue.length >= this.config.maxQueueSize) {
         this.queue.shift();
         this.stats.droppedEvents += 1;
@@ -154,6 +163,9 @@ class CollectorRuntime {
         hours: this.config.retentionHours,
         maxRows: this.config.maxRows,
         intervalMs: this.config.retentionIntervalMs,
+      },
+      redaction: {
+        keys: this.config.redactKeys,
       },
       storage: {
         totalEvents: this.db.getTotalEventsCount(),
@@ -233,6 +245,7 @@ export function resolveCollectorConfig(
       DEFAULT_RETENTION_INTERVAL_MS,
     ),
     dropPolicy: "drop_oldest",
+    redactKeys: resolveRedactKeys(options.redactKeys, env.LOGBOOK_REDACT_KEYS),
   };
 }
 
@@ -246,7 +259,7 @@ export function createCollectorServer(options: CollectorOptions = {}): Collector
 
   app.post("/ingest", async (request, reply) => {
     const parsed = parseIngestBody(request.body);
-    if (!parsed.ok) {
+    if (isParseError(parsed)) {
       return reply.code(400).send({ ok: false, error: parsed.error });
     }
 
@@ -310,7 +323,7 @@ function parseIngestBody(body: unknown): ParseResult | ParseError {
     const events: LogEvent[] = [];
     for (const [index, candidate] of body.entries()) {
       const parsed = parseEvent(candidate);
-      if (!parsed.ok) {
+      if (isParseError(parsed)) {
         return { ok: false, error: `Event at index ${index} is invalid: ${parsed.error}` };
       }
       events.push(parsed.event);
@@ -319,13 +332,13 @@ function parseIngestBody(body: unknown): ParseResult | ParseError {
   }
 
   const parsed = parseEvent(body);
-  if (!parsed.ok) {
+  if (isParseError(parsed)) {
     return { ok: false, error: parsed.error };
   }
   return { ok: true, events: [parsed.event] };
 }
 
-function parseEvent(input: unknown): { ok: true; event: LogEvent } | ParseError {
+function parseEvent(input: unknown): ParsedEvent {
   if (!isRecord(input)) {
     return { ok: false, error: "Event must be a JSON object." };
   }
@@ -376,3 +389,80 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isParseError(
+  value: ParseResult | ParseError | ParsedEvent,
+): value is ParseError {
+  return value.ok === false;
+}
+
+function resolveRedactKeys(
+  explicit: string[] | undefined,
+  envValue: string | undefined,
+): string[] {
+  if (explicit !== undefined) {
+    return normalizeRedactKeys(explicit);
+  }
+  if (envValue !== undefined) {
+    return normalizeRedactKeys(envValue.split(","));
+  }
+  return [...DEFAULT_REDACT_KEYS];
+}
+
+function normalizeRedactKeys(input: string[]): string[] {
+  return [...new Set(input.map((key) => key.trim().toLowerCase()).filter(Boolean))];
+}
+
+function redactEventPayload(event: LogEvent, redactKeys: ReadonlySet<string>): LogEvent {
+  if (event.payload === undefined || redactKeys.size === 0) {
+    return event;
+  }
+
+  const redactedPayload = redactValue(event.payload, redactKeys, new WeakSet<object>());
+  if (redactedPayload === event.payload) {
+    return event;
+  }
+
+  return {
+    ...event,
+    payload: redactedPayload,
+  };
+}
+
+function redactValue(
+  value: unknown,
+  redactKeys: ReadonlySet<string>,
+  seen: WeakSet<object>,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactValue(entry, redactKeys, seen));
+  }
+
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  if (seen.has(value)) {
+    return "[Circular]";
+  }
+  seen.add(value);
+
+  const redacted: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (redactKeys.has(key.toLowerCase())) {
+      redacted[key] = REDACTED_VALUE;
+      continue;
+    }
+    redacted[key] = redactValue(entry, redactKeys, seen);
+  }
+
+  seen.delete(value);
+  return redacted;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}

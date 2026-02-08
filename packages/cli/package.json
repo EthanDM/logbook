@@ -3,17 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "bin": {
-    "logbook": "src/bin.ts"
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
+  "bin": {
+    "logbook": "dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "node -e \"console.log('build @logbook/cli (stub)')\"",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/bin.js', 0o755)\"",
     "dev": "tsx src/bin.ts",
-    "typecheck": "node -e \"console.log('typecheck @logbook/cli (stub)')\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"console.log('test @logbook/cli (stub)')\"",
-    "lint": "node -e \"console.log('lint @logbook/cli (stub)')\""
+    "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@logbook/collector": "workspace:*",

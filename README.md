@@ -128,6 +128,14 @@ Characteristics:
 - No auth
 - Optimized for development, not production
 
+Runtime behavior:
+
+- Flushes queued events to SQLite every `250ms` or when queue length reaches `200`.
+- Uses bounded queue backpressure with `drop_oldest` when queue exceeds max size.
+- Flushes queued events during graceful shutdown before closing the DB.
+- Exposes queue size, dropped event count, and flush/retention failures on `GET /health`.
+- Redacts sensitive payload keys before persistence. Defaults: `email`, `token`, `authorization`, `password`; configurable with `LOGBOOK_REDACT_KEYS`.
+
 ### 2. SQLite Storage
 
 The SQLite database is the source of truth.
@@ -144,6 +152,7 @@ CREATE TABLE events (
   session_id TEXT,
   flow_id TEXT,
   screen TEXT,
+  msg TEXT,
   payload_json TEXT
 );
 ```
