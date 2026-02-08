@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose an improvement to Logbook
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem are you trying to solve?
+      placeholder: Describe the current pain point.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Logbook do?
+      placeholder: Describe the desired behavior or API.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other approaches did you evaluate?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Collector
+        - CLI
+        - SDK
+        - Documentation
+        - Tooling/CI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Examples, links, or sketches that help explain the request.
