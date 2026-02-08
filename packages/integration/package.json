@@ -1,0 +1,17 @@
+{
+  "name": "@logbook/integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --loader tsx --test test/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@logbook/cli": "workspace:*",
+    "@logbook/collector": "workspace:*",
+    "@logbook/sdk": "workspace:*"
+  }
+}
