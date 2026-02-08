@@ -159,6 +159,27 @@ Collector environment variables:
 
 CLI `logbook dev` flags (`--host`, `--port`, `--db`) override these values.
 
+Collector benchmark:
+
+```sh
+pnpm -C packages/collector bench:ingest
+```
+
+Benchmark env knobs:
+
+- `LOGBOOK_BENCH_EVENTS` (default `20000`)
+- `LOGBOOK_BENCH_BATCH_SIZE` (default `200`)
+- `LOGBOOK_BENCH_CONCURRENCY` (default `4`)
+- `LOGBOOK_BENCH_WAIT_TIMEOUT_MS` (default `60000`)
+
+Reference baseline (captured on February 8, 2026 in this repository):
+
+- `events_total=20000`
+- `enqueue_throughput_eps=100533.35`
+- `end_to_end_throughput_eps=99989.31`
+- `dropped_events=0`
+- `flush_failures=0`
+
 ### 2. SQLite Storage
 
 The SQLite database is the source of truth.
