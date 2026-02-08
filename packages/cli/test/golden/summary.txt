@@ -1,0 +1,11 @@
+1) Totals
+total_events=4
+unique_devices=2
+time_range=2026-02-08T12:00:00.000Z -> 2026-02-08T12:00:03.000Z
+2) Top Events
+api.fail 2
+feed.refresh 2
+3) Errors
+api.fail 2 last=<TIME>
+4) Recent Flows
+flow-alpha count=2 last=<TIME>

@@ -1,10 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LogbookDatabase } from "@logbook/collector";
 import { runCli } from "../src/run-cli.js";
+
+const SUMMARY_SINCE = "2026-02-08T11:59:00.000Z";
+const SUMMARY_UNTIL = "2026-02-08T12:10:00.000Z";
 
 function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -30,6 +34,49 @@ async function captureStdout(run: () => Promise<void>): Promise<string> {
   }
 
   return output;
+}
+
+function readGolden(name: string): string {
+  const path = fileURLToPath(new URL(`./golden/${name}`, import.meta.url));
+  return readFileSync(path, "utf8");
+}
+
+function seedSummaryFixture(db: LogbookDatabase): void {
+  const baseTs = Date.parse("2026-02-08T12:00:00.000Z");
+  db.insertEvents([
+    {
+      ts: baseTs,
+      level: "info",
+      name: "feed.refresh",
+      deviceId: "iphone",
+    },
+    {
+      ts: baseTs + 1_000,
+      level: "error",
+      name: "api.fail",
+      deviceId: "iphone",
+    },
+    {
+      ts: baseTs + 2_000,
+      level: "error",
+      name: "api.fail",
+      deviceId: "android",
+      flowId: "flow-alpha",
+    },
+    {
+      ts: baseTs + 3_000,
+      level: "warn",
+      name: "feed.refresh",
+      flowId: "flow-alpha",
+    },
+  ]);
+}
+
+function normalizeSummaryOutput(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/(?<=last(?:=|\s))\d{2}:\d{2}:\d{2}\.\d{3}/g, "<TIME>")
+    .trimEnd();
 }
 
 test("tail --json returns recent rows in ascending order", async () => {
@@ -63,40 +110,13 @@ test("tail --json returns recent rows in ascending order", async () => {
   }
 });
 
-test("summary --md prints deterministic sections and counts", async () => {
+test("summary text output matches golden snapshot", async () => {
   const root = createTempDir("logbook-cli-summary-");
   const dbPath = join(root, "logs.db");
   const db = new LogbookDatabase({ dbPath });
 
   try {
-    const baseTs = Date.parse("2026-02-08T12:00:00.000Z");
-    db.insertEvents([
-      {
-        ts: baseTs,
-        level: "info",
-        name: "feed.refresh",
-        deviceId: "iphone",
-      },
-      {
-        ts: baseTs + 1_000,
-        level: "error",
-        name: "api.fail",
-        deviceId: "iphone",
-      },
-      {
-        ts: baseTs + 2_000,
-        level: "error",
-        name: "api.fail",
-        deviceId: "android",
-        flowId: "flow-alpha",
-      },
-      {
-        ts: baseTs + 3_000,
-        level: "warn",
-        name: "feed.refresh",
-        flowId: "flow-alpha",
-      },
-    ]);
+    seedSummaryFixture(db);
 
     const output = await captureStdout(() =>
       runCli([
@@ -106,24 +126,45 @@ test("summary --md prints deterministic sections and counts", async () => {
         "--db",
         dbPath,
         "--since",
-        "2026-02-08T11:59:00.000Z",
+        SUMMARY_SINCE,
         "--until",
-        "2026-02-08T12:10:00.000Z",
+        SUMMARY_UNTIL,
+      ]),
+    );
+
+    const expected = readGolden("summary.txt");
+    assert.equal(normalizeSummaryOutput(output), normalizeSummaryOutput(expected));
+  } finally {
+    db.close();
+    cleanupDir(root);
+  }
+});
+
+test("summary markdown output matches golden snapshot", async () => {
+  const root = createTempDir("logbook-cli-summary-md-");
+  const dbPath = join(root, "logs.db");
+  const db = new LogbookDatabase({ dbPath });
+
+  try {
+    seedSummaryFixture(db);
+
+    const output = await captureStdout(() =>
+      runCli([
+        "node",
+        "logbook",
+        "summary",
+        "--db",
+        dbPath,
+        "--since",
+        SUMMARY_SINCE,
+        "--until",
+        SUMMARY_UNTIL,
         "--md",
       ]),
     );
 
-    assert.match(output, /## Logbook Summary/);
-    assert.match(output, /### 1\. Totals/);
-    assert.match(output, /- Total events: 4/);
-    assert.match(output, /- Unique devices: 2/);
-    assert.match(output, /### 2\. Top Events/);
-    assert.match(output, /- api\.fail: 2/);
-    assert.match(output, /- feed\.refresh: 2/);
-    assert.match(output, /### 3\. Errors/);
-    assert.match(output, /- api\.fail: 2/);
-    assert.match(output, /### 4\. Recent Flows/);
-    assert.match(output, /- flow-alpha: 2 events/);
+    const expected = readGolden("summary.md");
+    assert.equal(normalizeSummaryOutput(output), normalizeSummaryOutput(expected));
   } finally {
     db.close();
     cleanupDir(root);
