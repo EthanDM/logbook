@@ -22,7 +22,7 @@
     "build": "tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/bin.js', 0o755)\"",
     "dev": "tsx src/bin.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('test @logbook/cli (stub)')\"",
+    "test": "node --loader tsx --test test/*.test.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

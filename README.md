@@ -136,6 +136,29 @@ Runtime behavior:
 - Exposes queue size, dropped event count, and flush/retention failures on `GET /health`.
 - Redacts sensitive payload keys before persistence. Defaults: `email`, `token`, `authorization`, `password`; configurable with `LOGBOOK_REDACT_KEYS`.
 
+Collector environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LOGBOOK_HOST` | `127.0.0.1` | Collector bind host. |
+| `LOGBOOK_PORT` | `8787` | Collector bind port. |
+| `LOGBOOK_DB_PATH` | platform default | SQLite file path. |
+| `LOGBOOK_RETENTION_HOURS` | `24` | Delete rows older than this many hours. |
+| `LOGBOOK_MAX_ROWS` | `200000` | Maximum retained rows after cleanup. |
+| `LOGBOOK_FLUSH_INTERVAL_MS` | `250` | Flush queue cadence in milliseconds. |
+| `LOGBOOK_FLUSH_BATCH_SIZE` | `200` | Number of events inserted per DB flush batch. |
+| `LOGBOOK_FLUSH_QUEUE_THRESHOLD` | `200` | Flush immediately once queue reaches this size. |
+| `LOGBOOK_MAX_QUEUE_SIZE` | `50000` | Max in-memory queue size before dropping oldest events. |
+| `LOGBOOK_RETENTION_INTERVAL_MS` | `60000` | Cleanup interval in milliseconds. |
+| `LOGBOOK_REDACT_KEYS` | `email,token,authorization,password` | Comma-separated payload keys to redact before persistence. |
+
+`LOGBOOK_DB_PATH` platform defaults:
+
+- macOS/Linux: `~/.logbook/logs.db`
+- Windows: `%USERPROFILE%\.logbook\logs.db`
+
+CLI `logbook dev` flags (`--host`, `--port`, `--db`) override these values.
+
 ### 2. SQLite Storage
 
 The SQLite database is the source of truth.
