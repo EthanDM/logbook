@@ -110,6 +110,25 @@ function stopProcess(child: ChildProcess): Promise<void> {
   });
 }
 
+function waitForProcessExit(
+  child: ChildProcess,
+  timeoutMs = 4_000,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (child.exitCode === null && !child.killed) {
+        child.kill("SIGKILL");
+      }
+      reject(new Error("Timed out waiting for process exit."));
+    }, timeoutMs);
+
+    child.once("close", (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ code, signal });
+    });
+  });
+}
+
 test("black-box CLI flow works with built binary", async () => {
   const root = createTempDir("logbook-cli-smoke-");
   const dbPath = join(root, "logs.db");
@@ -200,4 +219,66 @@ test("black-box CLI flow works with built binary", async () => {
 
   assert.match(devStdout, /Collector started/);
   assert.equal(devStderr.trim(), "");
+});
+
+test("logbook dev handles repeated termination signals without hanging", async () => {
+  const root = createTempDir("logbook-cli-signals-");
+  const dbPath = join(root, "logs.db");
+  const port = await getFreePort();
+  const cliBin = getCliBinPath();
+
+  const dev = spawn(
+    process.execPath,
+    [cliBin, "dev", "--host", "127.0.0.1", "--port", String(port), "--db", dbPath],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        LOGBOOK_FLUSH_INTERVAL_MS: "10000",
+        LOGBOOK_FLUSH_QUEUE_THRESHOLD: "10000",
+      },
+    },
+  );
+
+  try {
+    await waitForHealth(port);
+
+    const ingest = await fetch(`http://127.0.0.1:${port}/ingest`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        ts: Date.now(),
+        level: "info",
+        name: "signal.shutdown.flush",
+      }),
+    });
+    assert.equal(ingest.status, 202);
+
+    const exitPromise = waitForProcessExit(dev);
+    dev.kill("SIGTERM");
+    dev.kill("SIGTERM");
+    const exit = await exitPromise;
+    assert.equal(exit.signal, null);
+    assert.equal(exit.code, 0);
+
+    const tailResult = await runCliCommand([
+      "tail",
+      "--db",
+      dbPath,
+      "--name",
+      "signal.shutdown.flush",
+      "--json",
+      "--limit",
+      "5",
+    ]);
+    assert.equal(tailResult.code, 0);
+    assert.match(tailResult.stdout, /signal\.shutdown\.flush/);
+  } finally {
+    if (dev.exitCode === null) {
+      await stopProcess(dev);
+    }
+    cleanupDir(root);
+  }
 });

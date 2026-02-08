@@ -133,7 +133,7 @@ Runtime behavior:
 - Flushes queued events to SQLite every `250ms` or when queue length reaches `200`.
 - Uses bounded queue backpressure with `drop_oldest` when queue exceeds max size.
 - Flushes queued events during graceful shutdown before closing the DB.
-- Exposes queue size, dropped event count, and flush/retention failures on `GET /health`.
+- Exposes lifecycle, queue, dropped counts, and flush/retention status on `GET /health`.
 - Redacts sensitive payload keys before persistence. Defaults: `email`, `token`, `authorization`, `password`; configurable with `LOGBOOK_REDACT_KEYS`.
 
 Collector environment variables:
@@ -150,6 +150,7 @@ Collector environment variables:
 | `LOGBOOK_FLUSH_QUEUE_THRESHOLD` | `200` | Flush immediately once queue reaches this size. |
 | `LOGBOOK_MAX_QUEUE_SIZE` | `50000` | Max in-memory queue size before dropping oldest events. |
 | `LOGBOOK_RETENTION_INTERVAL_MS` | `60000` | Cleanup interval in milliseconds. |
+| `LOGBOOK_SHUTDOWN_TIMEOUT_MS` | `5000` | Max shutdown drain window before dropping remaining queued events. |
 | `LOGBOOK_REDACT_KEYS` | `email,token,authorization,password` | Comma-separated payload keys to redact before persistence. |
 
 `LOGBOOK_DB_PATH` platform defaults:
@@ -179,6 +180,8 @@ Reference baseline (captured on February 8, 2026 in this repository):
 - `end_to_end_throughput_eps=99989.31`
 - `dropped_events=0`
 - `flush_failures=0`
+
+Operations and tuning guide: `docs/collector-operations.md`
 
 ### 2. SQLite Storage
 

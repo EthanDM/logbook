@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   isLogLevel,
   type LogEvent,
@@ -18,6 +19,7 @@ const DEFAULT_FLUSH_BATCH_SIZE = 200;
 const DEFAULT_FLUSH_QUEUE_THRESHOLD = 200;
 const DEFAULT_MAX_QUEUE_SIZE = 50_000;
 const DEFAULT_RETENTION_INTERVAL_MS = 60_000;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 const DEFAULT_EVENTS_LIMIT = 200;
 const DEFAULT_FLOW_LIMIT = 2_000;
 const DEFAULT_SUMMARY_LIMIT = 50_000;
@@ -38,6 +40,7 @@ export interface CollectorConfig {
   flushQueueThreshold: number;
   maxQueueSize: number;
   retentionIntervalMs: number;
+  shutdownTimeoutMs: number;
   dropPolicy: DropPolicy;
   redactKeys: string[];
 }
@@ -53,20 +56,28 @@ export interface CollectorOptions {
   flushQueueThreshold?: number;
   maxQueueSize?: number;
   retentionIntervalMs?: number;
+  shutdownTimeoutMs?: number;
   redactKeys?: string[];
 }
 
 export interface CollectorServer {
   app: FastifyInstance;
   config: CollectorConfig;
+  beginShutdown: () => void;
   close: () => Promise<void>;
 }
 
 interface QueueStats {
   droppedEvents: number;
+  shutdownDroppedEvents: number;
   acceptedEvents: number;
   flushFailures: number;
   retentionFailures: number;
+}
+
+interface ErrorSummary {
+  atMs: number;
+  message: string;
 }
 
 interface ParseResult {
@@ -104,6 +115,7 @@ class CollectorRuntime {
   private readonly queue: LogEvent[] = [];
   private readonly stats: QueueStats = {
     droppedEvents: 0,
+    shutdownDroppedEvents: 0,
     acceptedEvents: 0,
     flushFailures: 0,
     retentionFailures: 0,
@@ -112,7 +124,14 @@ class CollectorRuntime {
   private flushTimer: NodeJS.Timeout | null = null;
   private retentionTimer: NodeJS.Timeout | null = null;
   private flushInProgress = false;
-  private isStopped = false;
+  private lifecycleState: "running" | "stopping" | "stopped" = "running";
+  private readonly startedAtMs = Date.now();
+  private shutdownStartedAtMs: number | null = null;
+  private lastSuccessfulFlushAtMs: number | null = null;
+  private lastSuccessfulRetentionAtMs: number | null = null;
+  private lastFlushError: ErrorSummary | null = null;
+  private lastRetentionError: ErrorSummary | null = null;
+  private stopPromise: Promise<void> | null = null;
 
   constructor(db: LogbookDatabase, config: CollectorConfig) {
     this.db = db;
@@ -133,6 +152,10 @@ class CollectorRuntime {
   }
 
   enqueue(events: LogEvent[]): { accepted: number; dropped: number } {
+    if (!this.isAcceptingIngest()) {
+      return { accepted: 0, dropped: this.stats.droppedEvents };
+    }
+
     for (const rawEvent of events) {
       const event = redactEventPayload(rawEvent, this.redactKeySet);
       if (this.queue.length >= this.config.maxQueueSize) {
@@ -153,24 +176,26 @@ class CollectorRuntime {
     return { accepted: events.length, dropped: this.stats.droppedEvents };
   }
 
-  async stop(): Promise<void> {
-    if (this.isStopped) {
+  isAcceptingIngest(): boolean {
+    return this.lifecycleState === "running";
+  }
+
+  beginShutdown(): void {
+    if (this.lifecycleState !== "running") {
       return;
     }
+    this.lifecycleState = "stopping";
+    this.shutdownStartedAtMs = Date.now();
+  }
 
-    this.isStopped = true;
-
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
-    if (this.retentionTimer) {
-      clearInterval(this.retentionTimer);
-      this.retentionTimer = null;
+  async stop(): Promise<void> {
+    if (this.stopPromise) {
+      return this.stopPromise;
     }
 
-    await this.flush();
-    this.db.close();
+    this.beginShutdown();
+    this.stopPromise = this.stopInternal();
+    return this.stopPromise;
   }
 
   getHealth() {
@@ -179,6 +204,14 @@ class CollectorRuntime {
       host: this.config.host,
       port: this.config.port,
       dbPath: this.config.dbPath,
+      lifecycle: {
+        state: this.lifecycleState,
+        startedAtMs: this.startedAtMs,
+        shutdownStartedAtMs: this.shutdownStartedAtMs,
+        shutdownTimeoutMs: this.config.shutdownTimeoutMs,
+        lastSuccessfulFlushAtMs: this.lastSuccessfulFlushAtMs,
+        lastSuccessfulRetentionAtMs: this.lastSuccessfulRetentionAtMs,
+      },
       queue: {
         length: this.queue.length,
         maxSize: this.config.maxQueueSize,
@@ -193,14 +226,61 @@ class CollectorRuntime {
       redaction: {
         keys: this.config.redactKeys,
       },
+      failures: {
+        lastFlushError: this.lastFlushError,
+        lastRetentionError: this.lastRetentionError,
+      },
       storage: {
         totalEvents: this.db.getTotalEventsCount(),
       },
     };
   }
 
+  private async stopInternal(): Promise<void> {
+    this.clearTimers();
+
+    const deadline = Date.now() + this.config.shutdownTimeoutMs;
+    while (this.queue.length > 0 && Date.now() < deadline) {
+      const before = this.queue.length;
+      await this.flush();
+
+      if (this.queue.length === 0) {
+        break;
+      }
+
+      if (this.queue.length === before) {
+        await sleep(25);
+      }
+    }
+
+    if (this.queue.length > 0) {
+      const droppedOnShutdown = this.queue.length;
+      this.stats.shutdownDroppedEvents += droppedOnShutdown;
+      this.stats.droppedEvents += droppedOnShutdown;
+      this.queue.length = 0;
+    }
+
+    this.lifecycleState = "stopped";
+    this.db.close();
+  }
+
+  private clearTimers(): void {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.retentionTimer) {
+      clearInterval(this.retentionTimer);
+      this.retentionTimer = null;
+    }
+  }
+
   private async flush(): Promise<void> {
-    if (this.flushInProgress || this.queue.length === 0) {
+    if (
+      this.flushInProgress ||
+      this.queue.length === 0 ||
+      this.lifecycleState === "stopped"
+    ) {
       return;
     }
 
@@ -211,9 +291,12 @@ class CollectorRuntime {
         const batch = this.queue.slice(0, this.config.flushBatchSize);
         this.db.insertEvents(batch);
         this.queue.splice(0, batch.length);
+        this.lastSuccessfulFlushAtMs = Date.now();
+        this.lastFlushError = null;
       }
-    } catch {
+    } catch (error) {
       this.stats.flushFailures += 1;
+      this.lastFlushError = summarizeError(error);
     } finally {
       this.flushInProgress = false;
     }
@@ -225,8 +308,11 @@ class CollectorRuntime {
         Date.now() - this.config.retentionHours * 60 * 60 * 1000;
       this.db.deleteOlderThan(retentionCutoffMs);
       this.db.enforceMaxRows(this.config.maxRows);
-    } catch {
+      this.lastSuccessfulRetentionAtMs = Date.now();
+      this.lastRetentionError = null;
+    } catch (error) {
       this.stats.retentionFailures += 1;
+      this.lastRetentionError = summarizeError(error);
     }
   }
 }
@@ -270,6 +356,11 @@ export function resolveCollectorConfig(
       env.LOGBOOK_RETENTION_INTERVAL_MS,
       DEFAULT_RETENTION_INTERVAL_MS,
     ),
+    shutdownTimeoutMs: normalizePositiveInt(
+      options.shutdownTimeoutMs,
+      env.LOGBOOK_SHUTDOWN_TIMEOUT_MS,
+      DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    ),
     dropPolicy: "drop_oldest",
     redactKeys: resolveRedactKeys(options.redactKeys, env.LOGBOOK_REDACT_KEYS),
   };
@@ -284,6 +375,13 @@ export function createCollectorServer(options: CollectorOptions = {}): Collector
   runtime.start();
 
   app.post("/ingest", async (request, reply) => {
+    if (!runtime.isAcceptingIngest()) {
+      return reply.code(503).send({
+        ok: false,
+        error: "Collector is shutting down and not accepting new ingest requests.",
+      });
+    }
+
     const parsed = parseIngestBody(request.body);
     if (isParseError(parsed)) {
       return reply.code(400).send({ ok: false, error: parsed.error });
@@ -409,10 +507,21 @@ export function createCollectorServer(options: CollectorOptions = {}): Collector
     await runtime.stop();
   });
 
+  let closePromise: Promise<void> | null = null;
+  const close = async (): Promise<void> => {
+    if (closePromise) {
+      return closePromise;
+    }
+    runtime.beginShutdown();
+    closePromise = app.close();
+    return closePromise;
+  };
+
   return {
     app,
     config,
-    close: async () => app.close(),
+    beginShutdown: () => runtime.beginShutdown(),
+    close,
   };
 }
 
@@ -846,6 +955,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isParseError(value: { ok: boolean }): value is ParseError {
   return value.ok === false;
+}
+
+function summarizeError(error: unknown): ErrorSummary {
+  if (error instanceof Error) {
+    return {
+      atMs: Date.now(),
+      message: error.message,
+    };
+  }
+
+  return {
+    atMs: Date.now(),
+    message: String(error),
+  };
 }
 
 function resolveRedactKeys(

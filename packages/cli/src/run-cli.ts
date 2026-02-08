@@ -42,11 +42,13 @@ export async function runCli(argv = process.argv): Promise<void> {
     .action(async (options) => {
       const collectorOptions = parseCollectorOptions(options);
       const server = await startCollector(collectorOptions);
+      const signalWatcher = createSignalWatcher();
 
       try {
         writeCollectorStartedOutput(server.config.host, server.config.port);
-        await waitForSignal();
+        await signalWatcher.wait();
       } finally {
+        signalWatcher.dispose();
         await server.close();
       }
     });
@@ -64,14 +66,16 @@ export async function runCli(argv = process.argv): Promise<void> {
       const browserHost = normalizeBrowserHost(server.config.host);
       const apiTarget = `http://${browserHost}:${server.config.port}`;
       const webUrl = `http://127.0.0.1:${uiPort}`;
+      const signalWatcher = createSignalWatcher();
 
       let uiProcess: ChildProcess | null = null;
       try {
         writeCollectorStartedOutput(server.config.host, server.config.port);
         process.stdout.write(`Web UI: ${webUrl}\n`);
         uiProcess = maybeStartWebDevServer(uiPort, apiTarget);
-        await waitForSignal();
+        await signalWatcher.wait();
       } finally {
+        signalWatcher.dispose();
         await stopChildProcess(uiProcess);
         await server.close();
       }
@@ -121,7 +125,9 @@ export async function runCli(argv = process.argv): Promise<void> {
         }
       }, FOLLOW_POLL_INTERVAL_MS);
 
-      await waitForSignal();
+      const signalWatcher = createSignalWatcher();
+      await signalWatcher.wait();
+      signalWatcher.dispose();
       clearInterval(pollId);
       db.close();
     });
@@ -597,20 +603,34 @@ async function stopChildProcess(child: ChildProcess | null): Promise<void> {
   });
 }
 
-function waitForSignal(): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const onSignal = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
+interface SignalWatcher {
+  wait: () => Promise<NodeJS.Signals>;
+  dispose: () => void;
+}
+
+function createSignalWatcher(): SignalWatcher {
+  let settled = false;
+  let resolveSignal: ((signal: NodeJS.Signals) => void) | null = null;
+  const waitPromise = new Promise<NodeJS.Signals>((resolve) => {
+    resolveSignal = resolve;
+  });
+
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    resolveSignal?.(signal);
+  };
+
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
+  return {
+    wait: () => waitPromise,
+    dispose: () => {
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
-      resolve();
-    };
-
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
-  });
+    },
+  };
 }

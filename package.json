@@ -10,7 +10,9 @@
     "dev": "pnpm -r --parallel --if-present run dev",
     "typecheck": "pnpm -r --if-present run build && pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
-    "lint": "pnpm -r --if-present run lint"
+    "lint": "pnpm -r --if-present run lint",
+    "ci:smoke:benchmark": "node scripts/ci-benchmark-gate.mjs",
+    "ci:smoke:cli": "node scripts/ci-cli-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.2.1",

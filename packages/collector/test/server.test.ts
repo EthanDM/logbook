@@ -60,9 +60,67 @@ test("GET /health returns collector status payload", async () => {
   });
 
   assert.equal(response.statusCode, 200);
-  const body = response.json() as { ok: boolean; dbPath: string };
+  const body = response.json() as {
+    ok: boolean;
+    dbPath: string;
+    lifecycle: {
+      state: "running" | "stopping" | "stopped";
+      startedAtMs: number;
+      shutdownStartedAtMs: number | null;
+      shutdownTimeoutMs: number;
+      lastSuccessfulFlushAtMs: number | null;
+      lastSuccessfulRetentionAtMs: number | null;
+    };
+    failures: {
+      lastFlushError: { atMs: number; message: string } | null;
+      lastRetentionError: { atMs: number; message: string } | null;
+    };
+    stats: {
+      shutdownDroppedEvents: number;
+    };
+  };
   assert.equal(body.ok, true);
   assert.equal(body.dbPath, dbPath);
+  assert.equal(body.lifecycle.state, "running");
+  assert.equal(typeof body.lifecycle.startedAtMs, "number");
+  assert.equal(body.lifecycle.shutdownStartedAtMs, null);
+  assert.equal(body.lifecycle.shutdownTimeoutMs, 5_000);
+  assert.equal(body.lifecycle.lastSuccessfulFlushAtMs, null);
+  assert.equal(body.lifecycle.lastSuccessfulRetentionAtMs, null);
+  assert.equal(body.failures.lastFlushError, null);
+  assert.equal(body.failures.lastRetentionError, null);
+  assert.equal(body.stats.shutdownDroppedEvents, 0);
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("GET /health payload keeps deterministic top-level key order", async () => {
+  const root = createTempDir("logbook-collector-health-keys-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({ dbPath });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "GET",
+    url: "/health",
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as Record<string, unknown>;
+  assert.deepEqual(Object.keys(body), [
+    "ok",
+    "host",
+    "port",
+    "dbPath",
+    "lifecycle",
+    "queue",
+    "stats",
+    "retention",
+    "redaction",
+    "failures",
+    "storage",
+  ]);
 
   await server.close();
   cleanupDir(root);
@@ -84,6 +142,33 @@ test("POST /ingest rejects invalid payload with 400", async () => {
   const body = response.json() as { ok: boolean; error: string };
   assert.equal(body.ok, false);
   assert.match(body.error, /`ts`/);
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("POST /ingest returns 503 once shutdown begins", async () => {
+  const root = createTempDir("logbook-collector-shutdown-reject-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({ dbPath });
+
+  await server.app.ready();
+  server.beginShutdown();
+
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload: {
+      ts: Date.now(),
+      level: "info",
+      name: "demo.shutdown.reject",
+    },
+  });
+
+  assert.equal(response.statusCode, 503);
+  const body = response.json() as { ok: boolean; error: string };
+  assert.equal(body.ok, false);
+  assert.match(body.error, /shutting down/i);
 
   await server.close();
   cleanupDir(root);
@@ -529,6 +614,38 @@ test("server close flushes queued events before shutdown", async () => {
 
   const db = new LogbookDatabase({ dbPath });
   const rows = db.queryEvents({ name: "demo.shutdown.flush", limit: 10 });
+  assert.equal(rows.length, 1);
+  db.close();
+
+  cleanupDir(root);
+});
+
+test("server close is idempotent when called repeatedly", async () => {
+  const root = createTempDir("logbook-collector-close-idempotent-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 10_000,
+    flushQueueThreshold: 10_000,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload: {
+      ts: Date.now(),
+      level: "info",
+      name: "demo.close.repeat",
+    },
+  });
+  assert.equal(response.statusCode, 202);
+
+  await Promise.all([server.close(), server.close(), server.close()]);
+
+  const db = new LogbookDatabase({ dbPath });
+  const rows = db.queryEvents({ name: "demo.close.repeat", limit: 10 });
   assert.equal(rows.length, 1);
   db.close();
 
