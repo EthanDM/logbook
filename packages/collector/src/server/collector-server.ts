@@ -24,6 +24,8 @@ const DEFAULT_EVENTS_LIMIT = 200;
 const DEFAULT_FLOW_LIMIT = 2_000;
 const DEFAULT_SUMMARY_LIMIT = 50_000;
 const DEFAULT_AROUND_WINDOW_MS = 5_000;
+const DEFAULT_DEMO_GENERATE_COUNT = 200;
+const MAX_DEMO_GENERATE_COUNT = 5_000;
 const DEFAULT_REDACT_KEYS = ["email", "token", "authorization", "password"];
 const REDACTED_VALUE = "[REDACTED]";
 
@@ -391,6 +393,31 @@ export function createCollectorServer(options: CollectorOptions = {}): Collector
 
     return reply.code(202).send({
       ok: true,
+      accepted: result.accepted,
+      dropped: result.dropped,
+      queueLength: runtime.getHealth().queue.length,
+    });
+  });
+
+  app.post("/demo/generate", async (request, reply) => {
+    if (!runtime.isAcceptingIngest()) {
+      return reply.code(503).send({
+        ok: false,
+        error: "Collector is shutting down and not accepting new ingest requests.",
+      });
+    }
+
+    const parsedCount = parseDemoGenerateCount(request.query, request.body);
+    if (isParseError(parsedCount)) {
+      return reply.code(400).send({ ok: false, error: parsedCount.error });
+    }
+
+    const events = generateDemoEvents(parsedCount.value);
+    const result = runtime.enqueue(events);
+
+    return reply.code(202).send({
+      ok: true,
+      generated: events.length,
       accepted: result.accepted,
       dropped: result.dropped,
       queueLength: runtime.getHealth().queue.length,
@@ -794,6 +821,33 @@ function parseWindowMs(value: unknown): ParseValueResult<number> | ParseError {
   return parsed;
 }
 
+function parseDemoGenerateCount(
+  query: unknown,
+  body: unknown,
+): ParseValueResult<number> | ParseError {
+  const queryRecord = toRecord(query);
+  const bodyRecord = toRecord(body);
+  const countValue = bodyRecord.count ?? queryRecord.count;
+
+  const parsed = parseNonNegativeInt(
+    countValue,
+    "count",
+    DEFAULT_DEMO_GENERATE_COUNT,
+    1,
+  );
+  if (isParseError(parsed)) {
+    return parsed;
+  }
+  if (parsed.value > MAX_DEMO_GENERATE_COUNT) {
+    return {
+      ok: false,
+      error: `\`count\` must be <= ${MAX_DEMO_GENERATE_COUNT}.`,
+    };
+  }
+
+  return parsed;
+}
+
 function asStringArray(value: unknown): string[] | null {
   if (typeof value === "string") {
     return [value];
@@ -955,6 +1009,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isParseError(value: { ok: boolean }): value is ParseError {
   return value.ok === false;
+}
+
+function generateDemoEvents(count: number): LogEvent[] {
+  const stages = [
+    "ui.tap",
+    "api.request",
+    "api.response",
+    "state.commit",
+    "screen.render",
+  ] as const;
+  const screens = ["Home", "Feed", "Settings", "Profile"] as const;
+  const networks = ["wifi", "5g", "lte"] as const;
+
+  const baseTs = Date.now();
+  const events: LogEvent[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const stage = stages[index % stages.length];
+    const flowGroup = Math.floor(index / stages.length) + 1;
+    const deviceGroup = (index % 4) + 1;
+    const isError = stage === "api.response" && index % 13 === 0;
+    const isWarn = stage === "api.response" && !isError && index % 7 === 0;
+    const level: LogLevel = isError ? "error" : isWarn ? "warn" : "info";
+
+    events.push({
+      ts: baseTs + index,
+      level,
+      name: `demo.${stage}`,
+      deviceId: `demo-device-${deviceGroup}`,
+      sessionId: `demo-session-${deviceGroup}`,
+      flowId: `demo-flow-${String(flowGroup).padStart(4, "0")}`,
+      screen: screens[index % screens.length],
+      payload: {
+        app: "collector-demo",
+        stage,
+        latencyMs: 25 + ((index * 17) % 500),
+        network: networks[index % networks.length],
+        batchIndex: index,
+      },
+      ...(isError
+        ? {
+          msg: "Synthetic demo error",
+        }
+        : {}),
+    });
+  }
+
+  return events;
 }
 
 function summarizeError(error: unknown): ErrorSummary {

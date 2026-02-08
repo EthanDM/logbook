@@ -24,6 +24,29 @@ Default dev URL: `http://127.0.0.1:5173`
 
 Expected collector target: `http://127.0.0.1:8787`
 
+## Demo Traffic
+
+Run web + collector + synthetic traffic together from repo root:
+
+```sh
+pnpm demo:web
+```
+
+Run only the synthetic stream:
+
+```sh
+pnpm demo:stream
+```
+
+Replay deterministic fixture traffic:
+
+```sh
+pnpm demo:replay -- --fixture scripts/fixtures/web-demo.ndjson
+```
+
+You can also trigger synthetic burst generation directly from the dashboard
+via the "Generate Burst" button in the Collector Health panel.
+
 Override API target:
 
 ```sh

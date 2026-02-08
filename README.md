@@ -39,6 +39,20 @@ Terminal 2 (read logs):
 ./packages/cli/dist/bin.js summary --since 5m
 ```
 
+Web UI demo loop (collector + web + synthetic live traffic):
+
+```sh
+pnpm demo:web
+```
+
+Or use the Web UI "Generate Burst" button in the Collector Health panel to seed events on demand.
+
+Deterministic fixture replay (optional):
+
+```sh
+pnpm demo:replay -- --fixture scripts/fixtures/web-demo.ndjson
+```
+
 ## Problem Statement
 
 During development, application logs are often:

@@ -11,6 +11,9 @@
     "typecheck": "pnpm -r --if-present run build && pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
     "lint": "pnpm -r --if-present run lint",
+    "demo:web": "node scripts/demo-web.mjs",
+    "demo:stream": "node scripts/demo-stream.mjs",
+    "demo:replay": "node scripts/demo-replay.mjs",
     "ci:smoke:benchmark": "node scripts/ci-benchmark-gate.mjs",
     "ci:smoke:cli": "node scripts/ci-cli-smoke.mjs"
   },

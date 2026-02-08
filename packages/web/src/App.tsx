@@ -1,6 +1,13 @@
-import { useMemo } from "react";
-import { Link, Navigate, Route, Routes, useParams, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseNonNegativeInt, parsePositiveInt } from "./filters";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -58,6 +65,14 @@ interface SummaryResponse {
   };
 }
 
+interface DemoGenerateResponse {
+  ok: boolean;
+  generated: number;
+  accepted: number;
+  dropped: number;
+  queueLength: number;
+}
+
 export function App() {
   return (
     <div className="app-shell">
@@ -85,6 +100,8 @@ export function App() {
 }
 
 function EventsPage() {
+  const queryClient = useQueryClient();
+  const [demoCountInput, setDemoCountInput] = useState("200");
   const [searchParams, setSearchParams] = useSearchParams();
   const level = searchParams.get("level") ?? "";
   const name = searchParams.get("name") ?? "";
@@ -124,8 +141,22 @@ function EventsPage() {
   const summary = useQuery({
     queryKey: ["summary", since || "15m"],
     queryFn: () =>
-      fetchJson<SummaryResponse>(`/api/summary?since=${encodeURIComponent(since || "15m")}`),
+      fetchJson<SummaryResponse>(
+        `/api/summary?since=${encodeURIComponent(since || "15m")}`,
+      ),
     refetchInterval: 5_000,
+  });
+
+  const generateDemo = useMutation({
+    mutationFn: async (count: number) =>
+      postJson<DemoGenerateResponse>("/api/demo/generate", { count }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["events"] }),
+        queryClient.invalidateQueries({ queryKey: ["health"] }),
+        queryClient.invalidateQueries({ queryKey: ["summary"] }),
+      ]);
+    },
   });
 
   const visibleCount = events.data?.items.length ?? 0;
@@ -183,19 +214,35 @@ function EventsPage() {
           </label>
           <label>
             Device
-            <input name="deviceId" defaultValue={deviceId} placeholder="iphone-15" />
+            <input
+              name="deviceId"
+              defaultValue={deviceId}
+              placeholder="iphone-15"
+            />
           </label>
           <label>
             Since
-            <input name="since" defaultValue={since} placeholder="15m or ISO timestamp" />
+            <input
+              name="since"
+              defaultValue={since}
+              placeholder="15m or ISO timestamp"
+            />
           </label>
           <label>
             Until
-            <input name="until" defaultValue={until} placeholder="now or ISO timestamp" />
+            <input
+              name="until"
+              defaultValue={until}
+              placeholder="now or ISO timestamp"
+            />
           </label>
           <label>
             Limit
-            <input name="limit" defaultValue={String(limit)} inputMode="numeric" />
+            <input
+              name="limit"
+              defaultValue={String(limit)}
+              inputMode="numeric"
+            />
           </label>
           <button type="submit">Apply</button>
           <button
@@ -263,13 +310,19 @@ function EventsPage() {
                 <tr key={row.id}>
                   <td>{formatTime(row.ts)}</td>
                   <td>
-                    <span className={`level level-${row.level}`}>{row.level}</span>
+                    <span className={`level level-${row.level}`}>
+                      {row.level}
+                    </span>
                   </td>
                   <td>
                     <Link to={`/event/${row.id}`}>{row.name}</Link>
                   </td>
                   <td>
-                    {row.flowId ? <Link to={`/flow/${row.flowId}`}>{row.flowId}</Link> : "—"}
+                    {row.flowId ? (
+                      <Link to={`/flow/${row.flowId}`}>{row.flowId}</Link>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td>{row.deviceId ?? "—"}</td>
                   <td>{eventPreview(row)}</td>
@@ -284,34 +337,72 @@ function EventsPage() {
         <section className="panel">
           <h2>Collector Health</h2>
           {health.isSuccess ? (
-            <dl className="stats">
-              <div>
-                <dt>DB</dt>
-                <dd>{health.data.dbPath}</dd>
+            <>
+              <dl className="stats">
+                <div>
+                  <dt>DB</dt>
+                  <dd>{health.data.dbPath}</dd>
+                </div>
+                <div>
+                  <dt>Queue</dt>
+                  <dd>
+                    {health.data.queue.length} / {health.data.queue.maxSize}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Total Events</dt>
+                  <dd>{health.data.storage.totalEvents}</dd>
+                </div>
+                <div>
+                  <dt>Dropped</dt>
+                  <dd>{health.data.stats.droppedEvents}</dd>
+                </div>
+                <div>
+                  <dt>Flush Failures</dt>
+                  <dd>{health.data.stats.flushFailures}</dd>
+                </div>
+                <div>
+                  <dt>Retention Failures</dt>
+                  <dd>{health.data.stats.retentionFailures}</dd>
+                </div>
+              </dl>
+
+              <div className="demo-controls">
+                <h3>Demo Traffic</h3>
+                <div className="inline-controls">
+                  <input
+                    value={demoCountInput}
+                    onChange={(event) => setDemoCountInput(event.target.value)}
+                    inputMode="numeric"
+                    aria-label="Demo event count"
+                  />
+                  <button
+                    type="button"
+                    disabled={generateDemo.isPending}
+                    onClick={() => {
+                      const count = parsePositiveInt(demoCountInput, 200);
+                      generateDemo.mutate(count);
+                    }}
+                  >
+                    {generateDemo.isPending
+                      ? "Generating..."
+                      : "Generate Burst"}
+                  </button>
+                </div>
+                <p className="muted">
+                  Generates synthetic collector events for UI testing.
+                </p>
+                {generateDemo.isSuccess ? (
+                  <p className="muted">
+                    Added {generateDemo.data.generated} events. Queue:{" "}
+                    {generateDemo.data.queueLength}
+                  </p>
+                ) : null}
+                {generateDemo.isError ? (
+                  <p className="muted">Failed to generate demo events.</p>
+                ) : null}
               </div>
-              <div>
-                <dt>Queue</dt>
-                <dd>
-                  {health.data.queue.length} / {health.data.queue.maxSize}
-                </dd>
-              </div>
-              <div>
-                <dt>Total Events</dt>
-                <dd>{health.data.storage.totalEvents}</dd>
-              </div>
-              <div>
-                <dt>Dropped</dt>
-                <dd>{health.data.stats.droppedEvents}</dd>
-              </div>
-              <div>
-                <dt>Flush Failures</dt>
-                <dd>{health.data.stats.flushFailures}</dd>
-              </div>
-              <div>
-                <dt>Retention Failures</dt>
-                <dd>{health.data.stats.retentionFailures}</dd>
-              </div>
-            </dl>
+            </>
           ) : (
             <p>Waiting for collector...</p>
           )}
@@ -349,7 +440,10 @@ function EventDetailPage() {
 
   const around = useQuery({
     queryKey: ["around", eventId, windowMs],
-    queryFn: () => fetchJson<AroundResponse>(`/api/events/${eventId}/around?windowMs=${windowMs}`),
+    queryFn: () =>
+      fetchJson<AroundResponse>(
+        `/api/events/${eventId}/around?windowMs=${windowMs}`,
+      ),
     enabled: Boolean(eventId),
     refetchInterval: 1_000,
   });
@@ -373,17 +467,25 @@ function EventDetailPage() {
       </p>
       <h2>Event #{around.data.event.id}</h2>
       <p>
-        {formatTime(around.data.event.ts)} · {around.data.event.level} · {around.data.event.name}
+        {formatTime(around.data.event.ts)} · {around.data.event.level} ·{" "}
+        {around.data.event.name}
       </p>
-      <pre className="payload">{prettyPayload(around.data.event.payloadJson)}</pre>
+      <pre className="payload">
+        {prettyPayload(around.data.event.payloadJson)}
+      </pre>
 
       <h3>Context (+/- {around.data.windowMs}ms)</h3>
       <ul className="timeline">
         {around.data.items.map((row) => (
-          <li key={row.id} className={row.id === around.data.event.id ? "active" : ""}>
+          <li
+            key={row.id}
+            className={row.id === around.data.event.id ? "active" : ""}
+          >
             <span>{formatTime(row.ts)}</span>
             <Link to={`/event/${row.id}`}>{row.name}</Link>
-            {row.flowId ? <Link to={`/flow/${row.flowId}`}>{row.flowId}</Link> : null}
+            {row.flowId ? (
+              <Link to={`/flow/${row.flowId}`}>{row.flowId}</Link>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -396,7 +498,10 @@ function FlowPage() {
 
   const flow = useQuery({
     queryKey: ["flow", flowId],
-    queryFn: () => fetchJson<EventsResponse>(`/api/flows/${encodeURIComponent(flowId)}?limit=500`),
+    queryFn: () =>
+      fetchJson<EventsResponse>(
+        `/api/flows/${encodeURIComponent(flowId)}?limit=500`,
+      ),
     enabled: Boolean(flowId),
     refetchInterval: 1_500,
   });
@@ -431,6 +536,32 @@ async function fetchJson<T>(path: string): Promise<T> {
     headers: {
       Accept: "application/json",
     },
+  });
+
+  if (!response.ok) {
+    let errorMessage = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) {
+        errorMessage = body.error;
+      }
+    } catch {
+      // Ignore parsing errors for non-JSON responses.
+    }
+    throw new Error(errorMessage);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function postJson<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

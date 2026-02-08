@@ -214,6 +214,67 @@ test("POST /ingest accepts events and persists after async flush", async () => {
   cleanupDir(root);
 });
 
+test("POST /demo/generate enqueues synthetic events", async () => {
+  const root = createTempDir("logbook-collector-demo-generate-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/demo/generate",
+    payload: {
+      count: 40,
+    },
+  });
+  assert.equal(response.statusCode, 202);
+  const body = response.json() as {
+    ok: boolean;
+    generated: number;
+    accepted: number;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.generated, 40);
+  assert.equal(body.accepted, 40);
+
+  await sleep(50);
+  const db = new LogbookDatabase({ dbPath });
+  const rows = db.queryEvents({ name: "demo.ui.tap", limit: 10 });
+  assert.ok(rows.length >= 1);
+  db.close();
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("POST /demo/generate validates count bounds", async () => {
+  const root = createTempDir("logbook-collector-demo-generate-invalid-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({ dbPath });
+
+  await server.app.ready();
+  const response = await server.app.inject({
+    method: "POST",
+    url: "/demo/generate",
+    payload: {
+      count: 9000,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  const body = response.json() as { ok: boolean; error: string };
+  assert.equal(body.ok, false);
+  assert.match(body.error, /count/);
+
+  await server.close();
+  cleanupDir(root);
+});
+
 test("GET /events supports filtering, order, limit, and offset", async () => {
   const root = createTempDir("logbook-collector-events-route-");
   const dbPath = join(root, "logs.db");

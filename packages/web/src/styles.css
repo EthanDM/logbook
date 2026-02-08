@@ -225,6 +225,40 @@ th {
   word-break: break-word;
 }
 
+.demo-controls {
+  margin-top: 0.9rem;
+  border-top: 1px solid rgba(137, 170, 222, 0.24);
+  padding-top: 0.9rem;
+}
+
+.inline-controls {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 0.5rem;
+}
+
+.inline-controls input,
+.inline-controls button {
+  border-radius: 8px;
+  border: 1px solid rgba(157, 193, 255, 0.4);
+  background: rgba(7, 11, 20, 0.7);
+  color: #f2f6fb;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+
+.inline-controls button {
+  background: linear-gradient(130deg, #2e7ec9, #43a8d9);
+  color: #051321;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inline-controls button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .summary ul,
 .timeline {
   margin: 0;
