@@ -42,8 +42,13 @@ export function attachReactNativeFlushAdapter(
   logger: Pick<LogbookLoggerApi, "flush">,
   options: ReactNativeFlushAdapterOptions,
 ): Disposable {
-  const flushStates = new Set(options.flushOnStates ?? DEFAULT_FLUSH_STATES);
+  const flushStates = new Set(
+    (options.flushOnStates ?? DEFAULT_FLUSH_STATES).filter(
+      (state): state is AppStateStatus => Boolean(state),
+    ),
+  );
   let lastState = options.appState.currentState;
+  let detached = false;
 
   const changeListener = (nextState: AppStateStatus): void => {
     const previousState = lastState;
@@ -70,19 +75,36 @@ export function attachReactNativeFlushAdapter(
 
   let memorySubscription: AppStateSubscriptionLike | void;
   if (options.flushOnMemoryWarning) {
-    memorySubscription = options.appState.addEventListener(
-      "memoryWarning",
-      memoryWarningListener,
-    );
+    try {
+      memorySubscription = options.appState.addEventListener(
+        "memoryWarning",
+        memoryWarningListener,
+      );
+    } catch {
+      memorySubscription = undefined;
+    }
   }
 
   return {
     detach(): void {
+      if (detached) {
+        return;
+      }
+      detached = true;
+
       if (changeSubscription && typeof changeSubscription.remove === "function") {
-        changeSubscription.remove();
+        try {
+          changeSubscription.remove();
+        } catch {
+          // Keep detach resilient even if host implementation throws.
+        }
       }
       if (memorySubscription && typeof memorySubscription.remove === "function") {
-        memorySubscription.remove();
+        try {
+          memorySubscription.remove();
+        } catch {
+          // Keep detach resilient even if host implementation throws.
+        }
       }
     },
   };

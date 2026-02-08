@@ -14,65 +14,65 @@ Polish the React Native SDK experience so setup is predictable across simulators
 
 ### Task 7.1: RN adapter API ergonomics
 
-- [ ] Review `initReactNative` API shape for minimum config required.
-- [ ] Keep `detachReactNative()` idempotent and safe to call multiple times.
-- [ ] Add/confirm support for configurable flush states (`background`, `inactive`, custom).
-- [ ] Ensure memory warning hooks are optional and guarded by capability checks.
+- [x] Review `initReactNative` API shape for minimum config required.
+- [x] Keep `detachReactNative()` idempotent and safe to call multiple times.
+- [x] Add/confirm support for configurable flush states (`background`, `inactive`, custom).
+- [x] Ensure memory warning hooks are optional and guarded by capability checks.
 
 Acceptance:
 
-- [ ] Adapter can be initialized and detached repeatedly without leaks/errors.
-- [ ] Flush triggers are deterministic and test-covered.
+- [x] Adapter can be initialized and detached repeatedly without leaks/errors.
+- [x] Flush triggers are deterministic and test-covered.
 
 ### Task 7.2: RN transport defaults and failure behavior
 
-- [ ] Document and enforce sane defaults for batch interval and queue size in RN scenarios.
-- [ ] Verify behavior when endpoint is temporarily unreachable (queue bound still enforced).
-- [ ] Confirm shutdown/flush semantics for app background and manual teardown.
+- [x] Document and enforce sane defaults for batch interval and queue size in RN scenarios.
+- [x] Verify behavior when endpoint is temporarily unreachable (queue bound still enforced).
+- [x] Confirm shutdown/flush semantics for app background and manual teardown.
 
 Acceptance:
 
-- [ ] No unbounded queue growth during network outage.
-- [ ] Background transition and manual `flush/shutdown` behavior are consistent.
+- [x] No unbounded queue growth during network outage.
+- [x] Background transition and manual `flush/shutdown` behavior are consistent.
 
 ### Task 7.3: RN networking docs (critical)
 
-- [ ] Add a dedicated RN setup section in `packages/sdk/README.md`:
-  - [ ] iOS simulator host usage
-  - [ ] Android emulator host mapping
-  - [ ] physical device on LAN
-- [ ] Include a concise troubleshooting table for common connection failures.
-- [ ] Include explicit collector host guidance (`127.0.0.1` vs `0.0.0.0` in dev).
+- [x] Add a dedicated RN setup section in `packages/sdk/README.md`:
+  - [x] iOS simulator host usage
+  - [x] Android emulator host mapping
+  - [x] physical device on LAN
+- [x] Include a concise troubleshooting table for common connection failures.
+- [x] Include explicit collector host guidance (`127.0.0.1` vs `0.0.0.0` in dev).
 
 Acceptance:
 
-- [ ] New RN user can connect to local collector without guesswork.
+- [x] New RN user can connect to local collector without guesswork.
 
 ### Task 7.4: RN examples
 
-- [ ] Add small example snippets for:
-  - [ ] basic init + log calls
-  - [ ] context + `withFlow`
-  - [ ] background flush adapter wiring
-  - [ ] optional unhandled error capture
-- [ ] Keep examples minimal and framework-agnostic (RN + Expo-friendly notes).
+- [x] Add small example snippets for:
+  - [x] basic init + log calls
+  - [x] context + `withFlow`
+  - [x] background flush adapter wiring
+  - [x] optional unhandled error capture
+- [x] Keep examples minimal and framework-agnostic (RN + Expo-friendly notes).
 
 Acceptance:
 
-- [ ] Examples are directly reusable in a fresh RN app with minimal edits.
+- [x] Examples are directly reusable in a fresh RN app with minimal edits.
 
 ### Task 7.5: Test coverage expansion
 
-- [ ] Add adapter tests for:
-  - [ ] custom `flushOnStates`
-  - [ ] repeated attach/detach
-  - [ ] memory warning callback behavior
-  - [ ] no-op behavior when optional RN hooks are missing
-- [ ] Keep existing SDK and integration tests green.
+- [x] Add adapter tests for:
+  - [x] custom `flushOnStates`
+  - [x] repeated attach/detach
+  - [x] memory warning callback behavior
+  - [x] no-op behavior when optional RN hooks are missing
+- [x] Keep existing SDK and integration tests green.
 
 Acceptance:
 
-- [ ] `pnpm -C packages/sdk test` and `pnpm -r test` pass with added cases.
+- [x] `pnpm -C packages/sdk test` and `pnpm -r test` pass with added cases.
 
 ## Exit Artifacts
 

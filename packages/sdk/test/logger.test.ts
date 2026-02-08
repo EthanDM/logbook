@@ -249,3 +249,37 @@ test("SDK exposes global logger alias when enabled", async () => {
     cleanupDir(root);
   }
 });
+
+test("SDK bounds queue growth when endpoint is unreachable", async () => {
+  try {
+    init({
+      endpoint: "http://127.0.0.1:9/ingest",
+      app: "sdk-test",
+      batchIntervalMs: 5,
+      batchSize: 2,
+      maxQueueSize: 5,
+    });
+
+    for (let seq = 0; seq < 20; seq += 1) {
+      log.info("network.outage.event", { seq });
+    }
+
+    await sleep(25);
+
+    const active = __getActiveLoggerForTests() as
+      | {
+        queue: Array<{
+          payload?: { seq?: number };
+        }>;
+      }
+      | null;
+    assert.ok(active);
+    assert.equal(active.queue.length, 5);
+    assert.deepEqual(
+      active.queue.map((event) => event.payload?.seq),
+      [15, 16, 17, 18, 19],
+    );
+  } finally {
+    await shutdownLogger();
+  }
+});

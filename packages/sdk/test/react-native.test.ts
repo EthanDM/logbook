@@ -59,6 +59,34 @@ class MockAppState implements ReactNativeAppStateLike {
   }
 }
 
+class MockAppStateNoMemoryWarning implements ReactNativeAppStateLike {
+  currentState: string = "active";
+  private listeners = new Set<(state: string) => void>();
+
+  addEventListener(
+    type: "change" | "memoryWarning",
+    listener: (state: string) => void,
+  ): AppStateSubscriptionLike | void {
+    if (type === "memoryWarning") {
+      throw new Error("memoryWarning not supported");
+    }
+
+    this.listeners.add(listener);
+    return {
+      remove: () => {
+        this.listeners.delete(listener);
+      },
+    };
+  }
+
+  emitChange(state: string): void {
+    this.currentState = state;
+    for (const listener of this.listeners) {
+      listener(state);
+    }
+  }
+}
+
 function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
@@ -172,4 +200,94 @@ test("RN adapter detach stops AppState-triggered flushing", async () => {
   appState.emit("change", "background");
   appState.emit("memoryWarning");
   assert.equal(flushCount, 2);
+});
+
+test("RN adapter supports custom flushOnStates", async () => {
+  const appState = new MockAppState();
+  let flushCount = 0;
+  const adapter = attachReactNativeFlushAdapter(
+    {
+      flush: async () => {
+        flushCount += 1;
+      },
+    },
+    {
+      appState,
+      flushOnStates: ["background"],
+      flushOnMemoryWarning: false,
+    },
+  );
+
+  appState.emit("change", "inactive");
+  assert.equal(flushCount, 0);
+
+  appState.emit("change", "background");
+  assert.equal(flushCount, 1);
+
+  adapter.detach();
+});
+
+test("RN adapter detach is idempotent", async () => {
+  const appState = new MockAppState();
+  let flushCount = 0;
+  const adapter = attachReactNativeFlushAdapter(
+    {
+      flush: async () => {
+        flushCount += 1;
+      },
+    },
+    {
+      appState,
+      flushOnMemoryWarning: true,
+    },
+  );
+
+  adapter.detach();
+  adapter.detach();
+
+  appState.emit("change", "background");
+  appState.emit("memoryWarning");
+  assert.equal(flushCount, 0);
+});
+
+test("RN adapter ignores missing memoryWarning support", async () => {
+  const appState = new MockAppStateNoMemoryWarning();
+  let flushCount = 0;
+  const adapter = attachReactNativeFlushAdapter(
+    {
+      flush: async () => {
+        flushCount += 1;
+      },
+    },
+    {
+      appState,
+      flushOnMemoryWarning: true,
+    },
+  );
+
+  appState.emitChange("background");
+  assert.equal(flushCount, 1);
+
+  adapter.detach();
+});
+
+test("RN adapter does not flush on memoryWarning when disabled", async () => {
+  const appState = new MockAppState();
+  let flushCount = 0;
+  const adapter = attachReactNativeFlushAdapter(
+    {
+      flush: async () => {
+        flushCount += 1;
+      },
+    },
+    {
+      appState,
+      flushOnMemoryWarning: false,
+    },
+  );
+
+  appState.emit("memoryWarning");
+  assert.equal(flushCount, 0);
+
+  adapter.detach();
 });
