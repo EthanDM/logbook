@@ -48,3 +48,28 @@ init({
 await log.flush();
 await log.shutdown();
 ```
+
+## React Native Adapter
+
+Use the RN helper to flush when app state moves to background/inactive.
+
+```ts
+import { AppState } from "react-native";
+import { initReactNative, log } from "@logbook/sdk";
+
+const { detachReactNative } = initReactNative(
+  {
+    endpoint: "http://<dev-machine>:8787/ingest",
+    app: "my-rn-app",
+  },
+  {
+    appState: AppState,
+    flushOnMemoryWarning: true,
+  },
+);
+
+log.info("app.opened");
+
+// Optional cleanup when tearing down logger manually:
+detachReactNative();
+```
