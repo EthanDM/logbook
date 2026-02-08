@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link,
   Navigate,
+  NavLink,
   Route,
   Routes,
   useParams,
@@ -73,28 +74,88 @@ interface DemoGenerateResponse {
   queueLength: number;
 }
 
+type ThemeMode = "light" | "dark";
+
+const THEME_STORAGE_KEY = "logbook.web.theme";
+
 export function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
+    <div className="app-frame">
+      <aside className="app-sidebar">
+        <div className="sidebar-brand">
           <p className="eyebrow">Logbook</p>
           <h1>Local Event Dashboard</h1>
         </div>
-        <nav className="nav-links">
-          <Link to="/">Events</Link>
-          <a href="/api/health" target="_blank" rel="noreferrer">
+        <nav className="sidebar-nav">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              isActive ? "sidebar-link active" : "sidebar-link"
+            }
+          >
+            Events
+          </NavLink>
+          <a
+            className="sidebar-link"
+            href="/api/health"
+            target="_blank"
+            rel="noreferrer"
+          >
             Raw Health
           </a>
         </nav>
-      </header>
+        <div className="sidebar-footer">
+          <div className="theme-toggle" role="group" aria-label="Theme">
+            <button
+              type="button"
+              className={theme === "light" ? "active" : ""}
+              onClick={() => setTheme("light")}
+            >
+              Light
+            </button>
+            <button
+              type="button"
+              className={theme === "dark" ? "active" : ""}
+              onClick={() => setTheme("dark")}
+            >
+              Dark
+            </button>
+          </div>
+          <p className="muted">Local-first event debugging workspace</p>
+        </div>
+      </aside>
 
-      <Routes>
-        <Route path="/" element={<EventsPage />} />
-        <Route path="/event/:eventId" element={<EventDetailPage />} />
-        <Route path="/flow/:flowId" element={<FlowPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <div className="app-shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Workspace</p>
+            <h2>Events Explorer</h2>
+          </div>
+          <nav className="nav-links">
+            <Link to="/">All Events</Link>
+            <a href="/api/health" target="_blank" rel="noreferrer">
+              API
+            </a>
+          </nav>
+        </header>
+
+        <main className="workspace-main">
+          <Routes>
+            <Route path="/" element={<EventsPage />} />
+            <Route path="/event/:eventId" element={<EventDetailPage />} />
+            <Route path="/flow/:flowId" element={<FlowPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }
@@ -166,11 +227,14 @@ function EventsPage() {
   const hasNextPage = visibleCount === limit;
 
   return (
-    <div className="grid">
-      <section className="panel">
-        <h2>Events</h2>
+    <div className="events-layout">
+      <aside className="panel filters-panel">
+        <h2>Filters</h2>
+        <p className="muted">
+          Refine by level, flow, device, or time range.
+        </p>
         <form
-          className="filters"
+          className="filters filters-sidebar"
           onSubmit={(event) => {
             event.preventDefault();
             const formData = new FormData(event.currentTarget);
@@ -244,55 +308,67 @@ function EventsPage() {
               inputMode="numeric"
             />
           </label>
-          <button type="submit">Apply</button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => {
-              setSearchParams({
-                limit: "200",
-                offset: "0",
-              });
-            }}
-          >
-            Reset
-          </button>
-        </form>
-
-        {events.isLoading ? <p>Loading events...</p> : null}
-        {events.isError ? <p>Failed to load events.</p> : null}
-
-        <div className="events-toolbar">
-          <p className="muted">
-            Showing {pageStart}-{pageEnd}
-          </p>
-          <div className="pager">
+          <div className="filter-actions">
+            <button type="submit">Apply</button>
             <button
               type="button"
-              disabled={!hasPreviousPage}
+              className="ghost-button"
               onClick={() => {
-                const next = new URLSearchParams(searchParams);
-                const nextOffset = Math.max(0, offset - limit);
-                next.set("offset", String(nextOffset));
-                setSearchParams(next);
+                setSearchParams({
+                  limit: "200",
+                  offset: "0",
+                });
               }}
             >
-              Prev
-            </button>
-            <button
-              type="button"
-              disabled={!hasNextPage}
-              onClick={() => {
-                const next = new URLSearchParams(searchParams);
-                next.set("offset", String(offset + limit));
-                setSearchParams(next);
-              }}
-            >
-              Next
+              Reset
             </button>
           </div>
+        </form>
+        <div className="panel-divider" />
+        <h3>Pagination</h3>
+        <p className="muted">
+          Showing {pageStart}-{pageEnd}
+        </p>
+        <div className="pager">
+          <button
+            type="button"
+            disabled={!hasPreviousPage}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              const nextOffset = Math.max(0, offset - limit);
+              next.set("offset", String(nextOffset));
+              setSearchParams(next);
+            }}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            disabled={!hasNextPage}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.set("offset", String(offset + limit));
+              setSearchParams(next);
+            }}
+          >
+            Next
+          </button>
         </div>
+      </aside>
 
+      <section className="panel events-panel">
+        <div className="events-panel-header">
+          <div>
+            <h2>Event Stream</h2>
+            <p className="muted">Live local events ordered by timestamp.</p>
+          </div>
+          <div className="chip-row">
+            <span className="chip">Rows {visibleCount}</span>
+            <span className="chip">Limit {limit}</span>
+          </div>
+        </div>
+        {events.isLoading ? <p>Loading events...</p> : null}
+        {events.isError ? <p>Failed to load events.</p> : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -333,7 +409,7 @@ function EventsPage() {
         </div>
       </section>
 
-      <aside className="side">
+      <aside className="insights-column">
         <section className="panel">
           <h2>Collector Health</h2>
           {health.isSuccess ? (
@@ -606,4 +682,19 @@ function prettyPayload(payloadJson: string | null): string {
   } catch {
     return payloadJson;
   }
+}
+
+function resolveInitialTheme(): ThemeMode {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
