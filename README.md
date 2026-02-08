@@ -6,6 +6,39 @@ It replaces ephemeral `console.log` output with structured, searchable, durable 
 
 Logbook is not a production observability platform.
 
+## Getting Started In 60s
+
+Requirements:
+
+- Node `22+`
+- `pnpm`
+
+```sh
+pnpm install
+pnpm -r build
+```
+
+Terminal 1 (start collector):
+
+```sh
+pnpm -C packages/cli dev
+```
+
+Terminal 2 (send one event):
+
+```sh
+curl -X POST http://127.0.0.1:8787/ingest \
+  -H 'content-type: application/json' \
+  -d '{"ts":1738890000000,"level":"info","name":"demo.hello","payload":{"x":1}}'
+```
+
+Terminal 2 (read logs):
+
+```sh
+./packages/cli/dist/bin.js tail --json --limit 20
+./packages/cli/dist/bin.js summary --since 5m
+```
+
 ## Problem Statement
 
 During development, application logs are often:
@@ -138,20 +171,20 @@ Runtime behavior:
 
 Collector environment variables:
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LOGBOOK_HOST` | `127.0.0.1` | Collector bind host. |
-| `LOGBOOK_PORT` | `8787` | Collector bind port. |
-| `LOGBOOK_DB_PATH` | platform default | SQLite file path. |
-| `LOGBOOK_RETENTION_HOURS` | `24` | Delete rows older than this many hours. |
-| `LOGBOOK_MAX_ROWS` | `200000` | Maximum retained rows after cleanup. |
-| `LOGBOOK_FLUSH_INTERVAL_MS` | `250` | Flush queue cadence in milliseconds. |
-| `LOGBOOK_FLUSH_BATCH_SIZE` | `200` | Number of events inserted per DB flush batch. |
-| `LOGBOOK_FLUSH_QUEUE_THRESHOLD` | `200` | Flush immediately once queue reaches this size. |
-| `LOGBOOK_MAX_QUEUE_SIZE` | `50000` | Max in-memory queue size before dropping oldest events. |
-| `LOGBOOK_RETENTION_INTERVAL_MS` | `60000` | Cleanup interval in milliseconds. |
-| `LOGBOOK_SHUTDOWN_TIMEOUT_MS` | `5000` | Max shutdown drain window before dropping remaining queued events. |
-| `LOGBOOK_REDACT_KEYS` | `email,token,authorization,password` | Comma-separated payload keys to redact before persistence. |
+| Variable                        | Default                              | Purpose                                                            |
+| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------ |
+| `LOGBOOK_HOST`                  | `127.0.0.1`                          | Collector bind host.                                               |
+| `LOGBOOK_PORT`                  | `8787`                               | Collector bind port.                                               |
+| `LOGBOOK_DB_PATH`               | platform default                     | SQLite file path.                                                  |
+| `LOGBOOK_RETENTION_HOURS`       | `24`                                 | Delete rows older than this many hours.                            |
+| `LOGBOOK_MAX_ROWS`              | `200000`                             | Maximum retained rows after cleanup.                               |
+| `LOGBOOK_FLUSH_INTERVAL_MS`     | `250`                                | Flush queue cadence in milliseconds.                               |
+| `LOGBOOK_FLUSH_BATCH_SIZE`      | `200`                                | Number of events inserted per DB flush batch.                      |
+| `LOGBOOK_FLUSH_QUEUE_THRESHOLD` | `200`                                | Flush immediately once queue reaches this size.                    |
+| `LOGBOOK_MAX_QUEUE_SIZE`        | `50000`                              | Max in-memory queue size before dropping oldest events.            |
+| `LOGBOOK_RETENTION_INTERVAL_MS` | `60000`                              | Cleanup interval in milliseconds.                                  |
+| `LOGBOOK_SHUTDOWN_TIMEOUT_MS`   | `5000`                               | Max shutdown drain window before dropping remaining queued events. |
+| `LOGBOOK_REDACT_KEYS`           | `email,token,authorization,password` | Comma-separated payload keys to redact before persistence.         |
 
 `LOGBOOK_DB_PATH` platform defaults:
 
@@ -302,7 +335,7 @@ log.setContext({ screen: "Feed" });
 Development convenience:
 
 ```ts
-globalThis.log = log
+globalThis.log = log;
 ```
 
 This is optional and dev-only.

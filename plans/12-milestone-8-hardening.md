@@ -55,7 +55,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Matrix is green and stable across configured runtimes.
+- [x] Matrix is green and stable across configured runtimes.
 
 ### Task 8.5: Hardening smoke checks in CI
 
