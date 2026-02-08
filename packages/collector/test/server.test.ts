@@ -129,6 +129,201 @@ test("POST /ingest accepts events and persists after async flush", async () => {
   cleanupDir(root);
 });
 
+test("GET /events supports filtering, order, limit, and offset", async () => {
+  const root = createTempDir("logbook-collector-events-route-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const now = Date.now();
+  const payload = [
+    { ts: now + 1, level: "info", name: "demo.events", flowId: "flow-a" },
+    { ts: now + 2, level: "error", name: "demo.events", flowId: "flow-a" },
+    { ts: now + 3, level: "warn", name: "demo.events", flowId: "flow-b" },
+    { ts: now + 4, level: "error", name: "demo.events", flowId: "flow-a" },
+  ];
+
+  const ingest = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload,
+  });
+  assert.equal(ingest.statusCode, 202);
+  await sleep(30);
+
+  const response = await server.app.inject({
+    method: "GET",
+    url: "/events?level=error&order=asc&limit=1&offset=1",
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    ok: boolean;
+    count: number;
+    items: Array<{ level: string; ts: number }>;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.count, 1);
+  assert.equal(body.items[0]?.level, "error");
+  assert.equal(body.items[0]?.ts, now + 4);
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("GET /events/:eventId/around returns context and 404 for unknown event", async () => {
+  const root = createTempDir("logbook-collector-events-around-route-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const now = Date.now();
+  const payload = [
+    { ts: now, level: "info", name: "demo.a" },
+    { ts: now + 10, level: "info", name: "demo.b" },
+    { ts: now + 20, level: "info", name: "demo.c" },
+  ];
+  const ingest = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload,
+  });
+  assert.equal(ingest.statusCode, 202);
+  await sleep(30);
+
+  const db = new LogbookDatabase({ dbPath });
+  const middle = db.queryEvents({ name: "demo.b", limit: 1 })[0];
+  db.close();
+  assert.ok(middle);
+
+  const around = await server.app.inject({
+    method: "GET",
+    url: `/events/${middle.id}/around?windowMs=11`,
+  });
+  assert.equal(around.statusCode, 200);
+  const aroundBody = around.json() as {
+    ok: boolean;
+    count: number;
+    items: Array<{ name: string }>;
+  };
+  assert.equal(aroundBody.ok, true);
+  assert.equal(aroundBody.count, 3);
+  assert.deepEqual(aroundBody.items.map((item) => item.name), ["demo.a", "demo.b", "demo.c"]);
+
+  const missing = await server.app.inject({
+    method: "GET",
+    url: "/events/999999/around",
+  });
+  assert.equal(missing.statusCode, 404);
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("GET /flows/:flowId returns ordered timeline", async () => {
+  const root = createTempDir("logbook-collector-flow-route-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const now = Date.now();
+  const payload = [
+    { ts: now + 20, level: "info", name: "demo.flow.late", flowId: "flow-42" },
+    { ts: now + 10, level: "info", name: "demo.flow.early", flowId: "flow-42" },
+    { ts: now + 30, level: "info", name: "demo.other", flowId: "flow-other" },
+  ];
+  const ingest = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload,
+  });
+  assert.equal(ingest.statusCode, 202);
+  await sleep(30);
+
+  const response = await server.app.inject({
+    method: "GET",
+    url: "/flows/flow-42",
+  });
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    ok: boolean;
+    items: Array<{ name: string; flowId: string | null }>;
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.items.length, 2);
+  assert.deepEqual(body.items.map((item) => item.name), ["demo.flow.early", "demo.flow.late"]);
+  assert.ok(body.items.every((item) => item.flowId === "flow-42"));
+
+  await server.close();
+  cleanupDir(root);
+});
+
+test("GET /summary returns deterministic aggregate sections", async () => {
+  const root = createTempDir("logbook-collector-summary-route-");
+  const dbPath = join(root, "logs.db");
+  const server = createCollectorServer({
+    dbPath,
+    flushIntervalMs: 5,
+    flushQueueThreshold: 1,
+    retentionIntervalMs: 30_000,
+  });
+
+  await server.app.ready();
+  const now = Date.now();
+  const payload = [
+    { ts: now + 1, level: "info", name: "demo.open", deviceId: "ios-1", flowId: "flow-a" },
+    { ts: now + 2, level: "error", name: "demo.fail", deviceId: "ios-1", flowId: "flow-a" },
+    { ts: now + 3, level: "error", name: "demo.fail", deviceId: "android-1", flowId: "flow-b" },
+    { ts: now + 4, level: "info", name: "demo.open", deviceId: "android-1", flowId: "flow-b" },
+  ];
+  const ingest = await server.app.inject({
+    method: "POST",
+    url: "/ingest",
+    payload,
+  });
+  assert.equal(ingest.statusCode, 202);
+  await sleep(30);
+
+  const response = await server.app.inject({
+    method: "GET",
+    url: "/summary?since=1h",
+  });
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    ok: boolean;
+    summary: {
+      totals: { totalEvents: number; uniqueDevices: number };
+      topEvents: Array<{ name: string; count: number }>;
+      errors: Array<{ name: string; count: number }>;
+      recentFlows: Array<{ flowId: string; count: number }>;
+    };
+  };
+  assert.equal(body.ok, true);
+  assert.equal(body.summary.totals.totalEvents, 4);
+  assert.equal(body.summary.totals.uniqueDevices, 2);
+  assert.deepEqual(body.summary.topEvents[0], { name: "demo.fail", count: 2 });
+  assert.deepEqual(body.summary.errors[0], { name: "demo.fail", count: 2, lastTs: now + 3 });
+  assert.deepEqual(body.summary.recentFlows[0], { flowId: "flow-b", count: 2, lastTs: now + 4 });
+
+  await server.close();
+  cleanupDir(root);
+});
+
 test("queue backpressure drops oldest events when max queue is exceeded", async () => {
   const root = createTempDir("logbook-collector-backpressure-");
   const dbPath = join(root, "logs.db");

@@ -1,4 +1,7 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
+import { join } from "node:path";
 import { setInterval, clearInterval } from "node:timers";
 import { cac } from "cac";
 import {
@@ -11,6 +14,7 @@ import type { LogEventRow, LogLevel, QueryEventsFilters } from "@logbook/core";
 
 const DEFAULT_TAIL_LIMIT = 50;
 const DEFAULT_FIND_LIMIT = 200;
+const DEFAULT_WEB_PORT = 5173;
 const FOLLOW_POLL_INTERVAL_MS = 500;
 
 interface CommonQueryOptions {
@@ -36,32 +40,41 @@ export async function runCli(argv = process.argv): Promise<void> {
     .option("--port <port>", "Port to bind", { default: "8787" })
     .option("--db <path>", "SQLite DB path")
     .action(async (options) => {
-      const collectorOptions: CollectorOptions = {
-        host: options.host,
-        port: Number(options.port),
-        dbPath: options.db,
-      };
-
+      const collectorOptions = parseCollectorOptions(options);
       const server = await startCollector(collectorOptions);
-      const localUrl = `http://${server.config.host}:${server.config.port}`;
 
-      process.stdout.write(`Collector started\n`);
-      process.stdout.write(`Local URL: ${localUrl}\n`);
-      process.stdout.write(`Ingest: ${localUrl}/ingest\n`);
-      process.stdout.write(`Health: ${localUrl}/health\n`);
-
-      const lanUrls = getLanUrls(server.config.port);
-      if (lanUrls.length > 0) {
-        process.stdout.write(`LAN ingest URLs:\n`);
-        for (const url of lanUrls) {
-          process.stdout.write(`- ${url}/ingest\n`);
-        }
-      } else {
-        process.stdout.write(`LAN ingest URLs: use your machine LAN IP and port ${server.config.port}\n`);
+      try {
+        writeCollectorStartedOutput(server.config.host, server.config.port);
+        await waitForSignal();
+      } finally {
+        await server.close();
       }
+    });
 
-      await waitForSignal();
-      await server.close();
+  cli
+    .command("web", "Start collector and web UI dev loop")
+    .option("--host <host>", "Collector host to bind", { default: "127.0.0.1" })
+    .option("--port <port>", "Collector port to bind", { default: "8787" })
+    .option("--db <path>", "SQLite DB path")
+    .option("--ui-port <port>", "Web UI port", { default: String(DEFAULT_WEB_PORT) })
+    .action(async (options) => {
+      const collectorOptions = parseCollectorOptions(options);
+      const server = await startCollector(collectorOptions);
+      const uiPort = parsePositiveInt(options.uiPort, DEFAULT_WEB_PORT);
+      const browserHost = normalizeBrowserHost(server.config.host);
+      const apiTarget = `http://${browserHost}:${server.config.port}`;
+      const webUrl = `http://127.0.0.1:${uiPort}`;
+
+      let uiProcess: ChildProcess | null = null;
+      try {
+        writeCollectorStartedOutput(server.config.host, server.config.port);
+        process.stdout.write(`Web UI: ${webUrl}\n`);
+        uiProcess = maybeStartWebDevServer(uiPort, apiTarget);
+        await waitForSignal();
+      } finally {
+        await stopChildProcess(uiProcess);
+        await server.close();
+      }
     });
 
   cli
@@ -219,6 +232,36 @@ export async function runCli(argv = process.argv): Promise<void> {
   cli.help();
   cli.version("0.1.0");
   await cli.parse(argv, { run: true });
+}
+
+function parseCollectorOptions(options: {
+  host?: string;
+  port?: string | number;
+  db?: string;
+}): CollectorOptions {
+  return {
+    host: options.host,
+    port: Number(options.port),
+    dbPath: options.db,
+  };
+}
+
+function writeCollectorStartedOutput(host: string, port: number): void {
+  const localUrl = `http://${host}:${port}`;
+  process.stdout.write(`Collector started\n`);
+  process.stdout.write(`Local URL: ${localUrl}\n`);
+  process.stdout.write(`Ingest: ${localUrl}/ingest\n`);
+  process.stdout.write(`Health: ${localUrl}/health\n`);
+
+  const lanUrls = getLanUrls(port);
+  if (lanUrls.length > 0) {
+    process.stdout.write(`LAN ingest URLs:\n`);
+    for (const url of lanUrls) {
+      process.stdout.write(`- ${url}/ingest\n`);
+    }
+  } else {
+    process.stdout.write(`LAN ingest URLs: use your machine LAN IP and port ${port}\n`);
+  }
 }
 
 function openDatabase(dbPath: string | undefined): LogbookDatabase {
@@ -495,6 +538,65 @@ function getLanUrls(port: number): string[] {
   return [...new Set(urls)].sort();
 }
 
+function normalizeBrowserHost(host: string): string {
+  return host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+}
+
+function maybeStartWebDevServer(
+  uiPort: number,
+  apiTarget: string,
+): ChildProcess | null {
+  const webPackageJson = join(process.cwd(), "packages", "web", "package.json");
+  if (!existsSync(webPackageJson)) {
+    process.stdout.write(`Web package not found at packages/web\n`);
+    process.stdout.write(`Run manually: pnpm -C packages/web dev -- --port ${uiPort}\n`);
+    return null;
+  }
+
+  process.stdout.write(`Starting web dev server from packages/web\n`);
+  const child = spawn(
+    "pnpm",
+    ["-C", "packages/web", "dev", "--", "--port", String(uiPort)],
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        LOGBOOK_WEB_API_TARGET: apiTarget,
+      },
+      shell: process.platform === "win32",
+    },
+  );
+
+  child.on("error", () => {
+    process.stdout.write(
+      `Failed to launch web dev server automatically. Run: pnpm -C packages/web dev -- --port ${uiPort}\n`,
+    );
+  });
+
+  return child;
+}
+
+async function stopChildProcess(child: ChildProcess | null): Promise<void> {
+  if (!child || child.killed || child.exitCode !== null) {
+    return;
+  }
+
+  child.kill("SIGTERM");
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      if (!child.killed && child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+      resolve();
+    }, 2_000);
+
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
 function waitForSignal(): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
@@ -512,4 +614,3 @@ function waitForSignal(): Promise<void> {
     process.on("SIGTERM", onSignal);
   });
 }
-

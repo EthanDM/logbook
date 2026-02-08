@@ -43,7 +43,7 @@ Why this stack:
 Acceptance:
 
 - [ ] `pnpm -C packages/web dev` starts locally.
-- [ ] `pnpm -C packages/web build` succeeds.
+- [x] `pnpm -C packages/web build` succeeds.
 
 ### Task 6.2: Add collector read endpoints
 
@@ -62,8 +62,8 @@ Notes:
 
 Acceptance:
 
-- [ ] Endpoints return valid JSON with expected filters/order.
-- [ ] Existing collector tests continue passing; new route tests added.
+- [x] Endpoints return valid JSON with expected filters/order.
+- [x] Existing collector tests continue passing; new route tests added.
 
 ### Task 6.3: Local CORS/dev integration
 
@@ -72,7 +72,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Browser requests succeed in local dev without proxy hacks.
+- [x] Browser requests succeed in local dev via Vite `/api` proxy.
 
 ### Task 6.4: Events table view
 
@@ -82,7 +82,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Can filter by level/name/device/flow and see deterministic results.
+- [x] Can filter by level/name/device/flow and see deterministic results.
 
 ### Task 6.5: Event detail + around context
 
@@ -92,7 +92,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Detail and context are consistent with CLI `around`.
+- [x] Detail and context are consistent with CLI `around`.
 
 ### Task 6.6: Flow timeline view
 
@@ -101,7 +101,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Flow view reads as a coherent sequence and matches CLI `flow`.
+- [x] Flow view reads as a coherent sequence and matches CLI `flow`.
 
 ### Task 6.7: Health/status panel
 
@@ -113,7 +113,7 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Panel updates and reflects collector state changes.
+- [x] Panel updates and reflects collector state changes.
 
 ### Task 6.8: CLI integration ergonomics
 
@@ -124,14 +124,14 @@ Acceptance:
 
 Acceptance:
 
-- [ ] One clear command path to run collector + UI locally.
+- [x] One clear command path to run collector + UI locally.
 
 ## Quality Gates
 
-- [ ] `pnpm -r build` passes.
-- [ ] `pnpm -r typecheck` passes.
-- [ ] `pnpm -r test` passes.
-- [ ] README updated with Web UI usage.
+- [x] `pnpm -r build` passes.
+- [x] `pnpm -r typecheck` passes.
+- [x] `pnpm -r test` passes.
+- [x] README updated with Web UI usage.
 
 ## Stop Condition
 

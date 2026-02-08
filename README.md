@@ -224,6 +224,12 @@ Core commands:
 - Prints LAN ingest URL (for physical devices)
 - Ensures the database exists
 
+`logbook web`
+
+- Starts collector and prints a local Web UI URL
+- Starts `packages/web` dev server automatically when present
+- Falls back to explicit manual command if auto-start is unavailable
+
 `logbook tail`
 
 - Shows most recent events
@@ -251,6 +257,17 @@ Core commands:
 
 - Shows events before and after a specific event
 - Useful for contextual debugging
+
+### 4. Web UI (Optional, Local MVP)
+
+The web package is a local dashboard for exploratory debugging.
+
+```sh
+pnpm -C packages/web dev
+```
+
+By default it proxies `/api/*` to `http://127.0.0.1:8787`.
+Override target with `LOGBOOK_WEB_API_TARGET`.
 
 ## SDK (Application Logger)
 

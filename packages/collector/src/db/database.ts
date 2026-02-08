@@ -166,6 +166,7 @@ export class LogbookDatabase {
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const orderDirection = filters.order === "asc" ? "ASC" : "DESC";
     const limit = clampLimit(filters.limit);
+    const offset = clampOffset(filters.offset);
 
     const statement = this.db.prepare<Array<string | number>, DbRow>(`
       SELECT
@@ -182,7 +183,8 @@ export class LogbookDatabase {
       FROM events
       ${whereClause}
       ORDER BY ts ${orderDirection}, id ${orderDirection}
-      LIMIT ${limit};
+      LIMIT ${limit}
+      OFFSET ${offset};
     `);
 
     return statement.all(...params);
@@ -311,4 +313,11 @@ function clampLimit(limit: number | undefined): number {
     return DEFAULT_QUERY_LIMIT;
   }
   return Math.min(limit, MAX_QUERY_LIMIT);
+}
+
+function clampOffset(offset: number | undefined): number {
+  if (!Number.isInteger(offset) || offset === undefined || offset < 0) {
+    return 0;
+  }
+  return offset;
 }

@@ -37,10 +37,10 @@ export interface QueryEventsFilters {
   flowId?: string;
   screen?: string;
   limit?: number;
+  offset?: number;
   order?: "asc" | "desc";
 }
 
 export function isLogLevel(value: unknown): value is LogLevel {
   return typeof value === "string" && LOG_LEVELS.includes(value as LogLevel);
 }
-
